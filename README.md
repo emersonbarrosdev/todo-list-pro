@@ -110,8 +110,11 @@ Para aplicar a migração no D1:
 # Aplicar localmente para testes:
 npx wrangler d1 execute todo-pro-db --local --file=./migrations/0001_create_todo_pro_d1.sql
 
-# Aplicar em produção no Cloudflare:
+# Aplicar em produção no Cloudflare CLI:
 npx wrangler d1 execute todo-pro-db --remote --file=./migrations/0001_create_todo_pro_d1.sql
+
+# Ou via Painel Cloudflare (D1 > todo-pro-db > Console):
+# Cole o script SQL de ./migrations/0001_create_todo_pro_d1.sql e clique em Execute.
 ```
 
 Tabelas estruturadas:
