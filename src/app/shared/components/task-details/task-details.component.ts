@@ -2,7 +2,7 @@ import { Component, EventEmitter, Input, OnDestroy, OnInit, Output, signal } fro
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject, Subscription, debounceTime } from 'rxjs';
-import { Task, ChecklistItem, UpdateTaskDto, TaskStatus, TaskPriority } from '../../../core/models/task.model';
+import { Task, ChecklistItem, UpdateTaskDto, TaskStatus, TaskPriority, WorkMode } from '../../../core/models/task.model';
 import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
 
 @Component({
@@ -120,6 +120,37 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
               </div>
             </div>
 
+            <!-- Work Mode Selector -->
+            <div class="property-item">
+              <span class="property-label">Modo da Tarefa</span>
+              <div class="property-pills">
+                <button
+                  type="button"
+                  class="pill-btn"
+                  [class.active]="workMode === 'general'"
+                  (click)="setWorkMode('general')"
+                >
+                  Geral
+                </button>
+                <button
+                  type="button"
+                  class="pill-btn pill-doing"
+                  [class.active]="workMode === 'dev'"
+                  (click)="setWorkMode('dev')"
+                >
+                  DEV
+                </button>
+                <button
+                  type="button"
+                  class="pill-btn pill-done"
+                  [class.active]="workMode === 'qa'"
+                  (click)="setWorkMode('qa')"
+                >
+                  QA
+                </button>
+              </div>
+            </div>
+
             <!-- Due Date -->
             <div class="property-item">
               <span class="property-label">Prazo</span>
@@ -173,6 +204,83 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
               </div>
             </div>
           </div>
+
+          <!-- Developer Mode Details Section -->
+          @if (workMode === 'dev') {
+            <div class="mode-section dev-section">
+              <div class="section-badge-title">
+                <span class="mode-indicator dev-dot"></span>
+                <span>Detalhes de desenvolvimento</span>
+              </div>
+
+              <div class="dev-fields-grid">
+                <!-- Tipo -->
+                <div class="field-group">
+                  <label class="field-label">Tipo de desenvolvimento</label>
+                  <select
+                    class="select"
+                    [(ngModel)]="devType"
+                    (ngModelChange)="onFieldChanged()"
+                  >
+                    <option value="">Selecione o tipo...</option>
+                    <option value="Feature">Feature</option>
+                    <option value="Bug">Bug</option>
+                    <option value="Refactor">Refactor</option>
+                    <option value="Chore">Chore</option>
+                    <option value="Docs">Docs</option>
+                  </select>
+                </div>
+
+                <!-- Projeto -->
+                <div class="field-group">
+                  <label class="field-label">Projeto</label>
+                  <input
+                    type="text"
+                    class="input"
+                    [(ngModel)]="devProject"
+                    (ngModelChange)="onFieldChanged()"
+                    placeholder="ex.: Core API, Frontend"
+                  />
+                </div>
+
+                <!-- Branch -->
+                <div class="field-group">
+                  <label class="field-label">Branch</label>
+                  <input
+                    type="text"
+                    class="input"
+                    [(ngModel)]="devBranch"
+                    (ngModelChange)="onFieldChanged()"
+                    placeholder="ex.: feat/auth-otp"
+                  />
+                </div>
+
+                <!-- Ambiente -->
+                <div class="field-group">
+                  <label class="field-label">Ambiente</label>
+                  <input
+                    type="text"
+                    class="input"
+                    [(ngModel)]="devEnvironment"
+                    (ngModelChange)="onFieldChanged()"
+                    placeholder="ex.: local, staging, prod"
+                  />
+                </div>
+
+                <!-- PR / URL Relacionada -->
+                <div class="field-group full-width">
+                  <label class="field-label">PR / URL relacionada</label>
+                  <input
+                    type="url"
+                    class="input"
+                    [(ngModel)]="devPrUrl"
+                    (ngModelChange)="onFieldChanged()"
+                    placeholder="https://github.com/.../pull/..."
+                  />
+                </div>
+              </div>
+            </div>
+          }
 
           <!-- Description Block with Markdown Toolbar -->
           <div class="field-block">
@@ -521,6 +629,62 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       grid-column: span 2;
     }
 
+    .mode-section {
+      background: var(--surface-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+
+    .dev-section {
+      border-left: 3px solid #60A5FA;
+    }
+
+    .section-badge-title {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .mode-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .dev-dot {
+      background: #60A5FA;
+      box-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+    }
+
+    .dev-fields-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .field-group.full-width {
+      grid-column: span 2;
+    }
+
+    .field-label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
     .tags-wrapper {
       display: flex;
       flex-wrap: wrap;
@@ -747,11 +911,19 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
   description: string = '';
   status: TaskStatus = 'todo';
   priority: TaskPriority = 'normal';
+  workMode: WorkMode = 'general';
   dueDate: string = '';
   tags: string[] = [];
   newTagInput: string = '';
   checklist: ChecklistItem[] = [];
   newChecklistItemText: string = '';
+
+  // DEV fields
+  devType: string = '';
+  devProject: string = '';
+  devBranch: string = '';
+  devEnvironment: string = '';
+  devPrUrl: string = '';
 
   previewMode = signal<boolean>(false);
   savingStatus = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -768,9 +940,19 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
     this.description = this.task.description || '';
     this.status = this.task.status || 'todo';
     this.priority = this.task.priority || 'normal';
+    this.workMode = this.task.work_mode || 'general';
     this.dueDate = this.task.due_at ? this.task.due_at.split('T')[0] : '';
     this.tags = [...(this.task.tags || [])];
     this.checklist = JSON.parse(JSON.stringify(this.task.checklist || []));
+
+    // Load DEV metadata
+    if (this.task.metadata) {
+      this.devType = (this.task.metadata['type'] as string) || '';
+      this.devProject = (this.task.metadata['project'] as string) || '';
+      this.devBranch = (this.task.metadata['branch'] as string) || '';
+      this.devEnvironment = (this.task.metadata['environment'] as string) || '';
+      this.devPrUrl = (this.task.metadata['pr_url'] as string) || '';
+    }
 
     // Debounce auto-save at 600ms
     this.sub = this.changeSubject.pipe(debounceTime(600)).subscribe(() => {
@@ -785,6 +967,11 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
   onFieldChanged() {
     this.savingStatus.set('saving');
     this.changeSubject.next();
+  }
+
+  setWorkMode(mode: WorkMode) {
+    this.workMode = mode;
+    this.onFieldChanged();
   }
 
   setStatus(newStatus: TaskStatus) {
@@ -861,11 +1048,25 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
   }
 
   private executeAutoSave() {
+    const metadata: Record<string, unknown> = {
+      ...(this.task.metadata || {}),
+    };
+
+    if (this.workMode === 'dev') {
+      if (this.devType) metadata['type'] = this.devType;
+      if (this.devProject) metadata['project'] = this.devProject;
+      if (this.devBranch) metadata['branch'] = this.devBranch;
+      if (this.devEnvironment) metadata['environment'] = this.devEnvironment;
+      if (this.devPrUrl) metadata['pr_url'] = this.devPrUrl;
+    }
+
     const payload: UpdateTaskDto = {
       title: this.title.trim() || this.task.title,
       description: this.description,
       status: this.status,
       priority: this.priority,
+      work_mode: this.workMode,
+      metadata,
       due_at: this.dueDate ? new Date(this.dueDate + 'T23:59:59Z').toISOString() : null,
       tags: this.tags,
       checklist: this.checklist,

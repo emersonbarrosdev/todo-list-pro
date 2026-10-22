@@ -50,6 +50,17 @@ describe('TaskDetailsComponent', () => {
     expect(component.priority).toBe('high');
   });
 
+  it('should toggle and support developer work mode fields', () => {
+    component.setWorkMode('dev');
+    expect(component.workMode).toBe('dev');
+
+    component.devType = 'Bug';
+    component.devBranch = 'fix/login-issue';
+    component.devProject = 'Auth Service';
+    expect(component.devType).toBe('Bug');
+    expect(component.devBranch).toBe('fix/login-issue');
+  });
+
   it('should add and remove tags', () => {
     component.newTagInput = 'backend';
     component.addTag();
