@@ -5,7 +5,8 @@ import { TodoModel } from '../../model/todo-model';
 @Component({
   selector: 'app-todo-list',
   templateUrl: './todo-list.component.html',
-  styleUrls: ['./todo-list.component.scss']
+  styleUrls: ['./todo-list.component.scss'],
+  standalone: false
 })
 export class TodoListComponent implements OnInit {
 
