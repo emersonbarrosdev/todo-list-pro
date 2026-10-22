@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { WorkMode } from '../../../core/models/profile.model';
@@ -20,14 +20,15 @@ import { WorkMode } from '../../../core/models/profile.model';
           <span class="logo-text">TODO <span class="logo-highlight">PRO</span></span>
         </a>
 
-        <!-- Search Bar -->
-        <div class="search-box" (click)="searchClicked.emit()">
+        <!-- Search Bar (Desktop) -->
+        <div class="search-box" [class.mobile-open]="showMobileSearch()" (click)="searchClicked.emit()">
           <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
           <input
             #searchInput
+            id="header-search-input"
             type="text"
             class="search-input"
             [placeholder]="'Buscar tarefas... (Ctrl+K)'"
@@ -40,6 +41,19 @@ import { WorkMode } from '../../../core/models/profile.model';
 
         <!-- Header Actions -->
         <div class="header-actions">
+          <!-- Mobile search trigger -->
+          <button
+            class="btn btn-ghost btn-icon btn-mobile-search"
+            (click)="toggleMobileSearch()"
+            type="button"
+            aria-label="Buscar"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </button>
+
           <!-- Work Mode Pill -->
           <button
             class="mode-pill"
@@ -63,7 +77,7 @@ import { WorkMode } from '../../../core/models/profile.model';
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-            <span>Nova tarefa</span>
+            <span class="btn-text">Nova tarefa</span>
           </button>
 
           <!-- User Menu / Settings -->
@@ -212,15 +226,36 @@ import { WorkMode } from '../../../core/models/profile.model';
       background: #A78BFA;
     }
 
+    .btn-mobile-search {
+      display: none;
+    }
+
     @media (max-width: 640px) {
+      .btn-mobile-search {
+        display: inline-flex;
+      }
       .search-box {
         display: none;
+      }
+      .search-box.mobile-open {
+        display: flex;
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        top: 65px;
+        max-width: none;
+        z-index: 100;
+        background: var(--surface);
+        box-shadow: var(--shadow-lg);
       }
       .mode-text {
         display: none;
       }
       .mode-pill {
         padding: 0.35rem;
+      }
+      .btn-text {
+        display: none;
       }
     }
   `]
@@ -233,12 +268,32 @@ export class HeaderComponent {
   @Output() newTaskClicked = new EventEmitter<void>();
   @Output() modeToggle = new EventEmitter<void>();
 
+  showMobileSearch = signal<boolean>(false);
+
   get workModeLabel(): string {
     switch (this.workMode) {
       case 'dev': return 'DEV';
       case 'qa': return 'QA';
       default: return 'Geral';
     }
+  }
+
+  toggleMobileSearch() {
+    this.showMobileSearch.update((v) => !v);
+    if (this.showMobileSearch()) {
+      this.focusSearch();
+    }
+  }
+
+  focusSearch() {
+    this.showMobileSearch.set(true);
+    setTimeout(() => {
+      const el = document.getElementById('header-search-input') as HTMLInputElement | null;
+      if (el) {
+        el.focus();
+        el.select();
+      }
+    }, 50);
   }
 
   onSearchInput(event: Event) {

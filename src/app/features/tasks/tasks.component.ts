@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, OnDestroy, computed, inject, signal, HostListener, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators, FormGroup } from '@angular/forms';
 import { HeaderComponent } from '../../shared/components/header/header.component';
@@ -152,17 +152,49 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
           <div class="tasks-container">
             @if (isLoading()) {
               <!-- Loading Skeletons -->
-              <div class="skeleton-list">
-                <div class="skeleton-item skeleton"></div>
-                <div class="skeleton-item skeleton"></div>
-                <div class="skeleton-item skeleton"></div>
+              <div class="skeleton-list" aria-busy="true" aria-label="Carregando tarefas">
+                <div class="skeleton-row">
+                  <div class="skeleton-check skeleton"></div>
+                  <div class="skeleton-body">
+                    <div class="skeleton-title skeleton"></div>
+                    <div class="skeleton-tags skeleton"></div>
+                  </div>
+                </div>
+                <div class="skeleton-row">
+                  <div class="skeleton-check skeleton"></div>
+                  <div class="skeleton-body">
+                    <div class="skeleton-title skeleton"></div>
+                    <div class="skeleton-tags skeleton"></div>
+                  </div>
+                </div>
+                <div class="skeleton-row">
+                  <div class="skeleton-check skeleton"></div>
+                  <div class="skeleton-body">
+                    <div class="skeleton-title skeleton"></div>
+                    <div class="skeleton-tags skeleton"></div>
+                  </div>
+                </div>
               </div>
             } @else if (tasks().length === 0) {
               <!-- Empty State -->
               <div class="empty-state">
-                <div class="empty-icon">✓</div>
-                <h3 class="empty-title">Nenhuma tarefa no momento</h3>
-                <p class="empty-desc">Digite o título no campo acima para criar sua primeira tarefa no TODO PRO.</p>
+                <div class="empty-icon" aria-hidden="true">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                  </svg>
+                </div>
+                <h3 class="empty-title">
+                  {{ searchQuery() ? 'Nenhuma tarefa encontrada' : 'Tudo organizado!' }}
+                </h3>
+                <p class="empty-desc">
+                  {{ searchQuery() ? 'Nenhum resultado para "' + searchQuery() + '".' : 'Crie sua primeira tarefa usando o campo acima ou pelos atalhos.' }}
+                </p>
+                <div class="empty-shortcuts">
+                  <span class="shortcut-chip"><kbd>N</kbd> Nova tarefa</span>
+                  <span class="shortcut-chip"><kbd>Ctrl K</kbd> Buscar</span>
+                  <span class="shortcut-chip"><kbd>Esc</kbd> Fechar painel</span>
+                </div>
               </div>
             } @else {
               <!-- Dense Task Items List -->
@@ -172,6 +204,11 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                     class="task-row"
                     [class.completed]="task.status === 'done'"
                     (click)="selectTask(task)"
+                    (keydown.enter)="selectTask(task)"
+                    (keydown.space)="$event.preventDefault(); selectTask(task)"
+                    role="button"
+                    tabindex="0"
+                    [attr.aria-label]="'Abrir detalhes de: ' + task.title"
                   >
                     <!-- Checkbox -->
                     <input
@@ -216,9 +253,9 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                       <button
                         type="button"
                         class="btn-delete"
-                        title="Remover tarefa"
+                        [title]="'Remover ' + task.title"
                         (click)="handleDeleteTask(task)"
-                        aria-label="Remover tarefa"
+                        [attr.aria-label]="'Remover ' + task.title"
                       >
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                           <polyline points="3 6 5 6 21 6"></polyline>
@@ -470,57 +507,130 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       color: var(--danger);
     }
 
+    .task-row:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: -2px;
+    }
+
     .empty-state {
-      padding: 4rem 1.5rem;
+      padding: 3.5rem 1.5rem;
       text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
 
     .empty-icon {
       width: 48px;
       height: 48px;
-      margin: 0 auto 1rem;
+      margin-bottom: 1rem;
       border-radius: 50%;
       background: var(--surface-secondary);
       border: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.25rem;
       color: var(--primary);
+      box-shadow: 0 0 16px rgba(139, 92, 246, 0.15);
     }
 
     .empty-title {
       font-size: 1.125rem;
       font-weight: 600;
       margin-bottom: 0.35rem;
+      color: var(--text);
     }
 
     .empty-desc {
       font-size: 0.875rem;
       color: var(--text-muted);
       max-width: 380px;
-      margin: 0 auto;
+      margin: 0 auto 1.25rem;
+      line-height: 1.5;
+    }
+
+    .empty-shortcuts {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .shortcut-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.6rem;
+      background: var(--surface-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xs);
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .shortcut-chip kbd {
+      padding: 0.1rem 0.35rem;
+      background: var(--surface-hover);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-size: 0.6875rem;
+      color: var(--text);
+      font-family: inherit;
     }
 
     .skeleton-list {
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
-      padding: 0.75rem;
+      padding: 0.5rem;
     }
 
-    .skeleton-item {
-      height: 48px;
-      width: 100%;
+    .skeleton-row {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.75rem 0.85rem;
+      border-radius: var(--radius-sm);
+    }
+
+    .skeleton-check {
+      width: 18px;
+      height: 18px;
+      border-radius: var(--radius-xs);
+      flex-shrink: 0;
+    }
+
+    .skeleton-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .skeleton-title {
+      height: 14px;
+      width: 45%;
+      border-radius: var(--radius-xs);
+    }
+
+    .skeleton-tags {
+      height: 10px;
+      width: 25%;
+      border-radius: var(--radius-xs);
     }
   `]
 })
-export class TasksComponent implements OnInit {
+export class TasksComponent implements OnInit, OnDestroy {
+  @ViewChild(HeaderComponent) headerComp?: HeaderComponent;
+
   private fb = inject(FormBuilder);
   private taskService = inject(TaskService);
   private auth = inject(AuthService);
   private profileService = inject(ProfileService);
   private toast = inject(ToastService);
+
+  private pendingDeletions = new Map<string, any>();
 
   tasks = signal<Task[]>([]);
   isLoading = signal<boolean>(true);
@@ -544,9 +654,54 @@ export class TasksComponent implements OnInit {
     title: ['', [Validators.required, Validators.maxLength(160)]],
   });
 
+  @HostListener('window:keydown', ['$event'])
+  handleGlobalShortcuts(event: KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+    const isTyping =
+      target &&
+      (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable);
+
+    // Ctrl+K or Cmd+K: Focus search
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      this.headerComp?.focusSearch();
+      return;
+    }
+
+    // Escape: Close lateral details panel or blur input
+    if (event.key === 'Escape') {
+      if (this.selectedTask()) {
+        event.preventDefault();
+        this.selectedTask.set(null);
+      } else if (isTyping) {
+        (target as HTMLElement).blur();
+      }
+      return;
+    }
+
+    // N: New task (only if not typing)
+    if (!isTyping && (event.key === 'n' || event.key === 'N') && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      this.focusQuickAdd();
+      return;
+    }
+  }
+
   async ngOnInit() {
     await this.checkUserProfile();
     await this.loadTasks();
+  }
+
+  ngOnDestroy() {
+    // Flush any pending deletions safely
+    for (const [id, timer] of this.pendingDeletions.entries()) {
+      clearTimeout(timer);
+      this.taskService.deleteTask(id).catch(() => {});
+    }
+    this.pendingDeletions.clear();
   }
 
   async checkUserProfile() {
@@ -718,12 +873,36 @@ export class TasksComponent implements OnInit {
   }
 
   async handleDeleteTask(task: Task) {
-    const originalTasks = [...this.tasks()];
+    if (this.selectedTask()?.id === task.id) {
+      this.selectedTask.set(null);
+    }
 
-    // Optimistic removal
+    const previousIndex = this.tasks().findIndex((t) => t.id === task.id);
     this.tasks.update((curr) => curr.filter((t) => t.id !== task.id));
 
     let undone = false;
+    const timer = setTimeout(async () => {
+      this.pendingDeletions.delete(task.id);
+      if (!undone) {
+        try {
+          await this.taskService.deleteTask(task.id);
+        } catch {
+          this.tasks.update((curr) => {
+            const next = [...curr];
+            if (previousIndex >= 0) {
+              next.splice(previousIndex, 0, task);
+            } else {
+              next.push(task);
+            }
+            return next;
+          });
+          this.toast.error('Erro ao deletar tarefa.');
+        }
+      }
+    }, 5000);
+
+    this.pendingDeletions.set(task.id, timer);
+
     this.toast.show({
       message: `Tarefa "${task.title}" removida.`,
       type: 'info',
@@ -731,20 +910,20 @@ export class TasksComponent implements OnInit {
       actionLabel: 'Desfazer',
       onAction: () => {
         undone = true;
-        this.tasks.set(originalTasks);
+        clearTimeout(timer);
+        this.pendingDeletions.delete(task.id);
+        this.tasks.update((curr) => {
+          const next = [...curr];
+          if (previousIndex >= 0) {
+            next.splice(previousIndex, 0, task);
+          } else {
+            next.push(task);
+          }
+          return next;
+        });
+        this.toast.info('Remoção desfeita com sucesso.');
       },
     });
-
-    setTimeout(async () => {
-      if (!undone) {
-        try {
-          await this.taskService.deleteTask(task.id);
-        } catch {
-          this.tasks.set(originalTasks);
-          this.toast.error('Erro ao deletar tarefa.');
-        }
-      }
-    }, 5100);
   }
 
   selectTask(task: Task) {

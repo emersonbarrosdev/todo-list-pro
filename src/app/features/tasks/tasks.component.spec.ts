@@ -73,4 +73,40 @@ describe('TasksComponent', () => {
     expect(component.tasks().length).toBe(1);
     expect(component.tasks()[0].title).toBe('Documentar API');
   });
+
+  it('should handle Escape key to close selected task panel', () => {
+    component.selectedTask.set({
+      id: 'task-1',
+      user_id: 'user-1',
+      title: 'Tarefa Teste',
+      description: '',
+      status: 'todo',
+      priority: 'normal',
+      due_at: null,
+      tags: [],
+      checklist: [],
+      work_mode: 'general',
+      metadata: {},
+      completed_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape' });
+    component.handleGlobalShortcuts(event);
+
+    expect(component.selectedTask()).toBeNull();
+  });
+
+  it('should optimistically delete task with undo option', async () => {
+    component.quickAddForm.controls['title'].setValue('Tarefa para deletar');
+    await component.handleCreateTask();
+    expect(component.tasks().length).toBe(1);
+
+    const taskToDelete = component.tasks()[0];
+    await component.handleDeleteTask(taskToDelete);
+
+    // Optimistically removed
+    expect(component.tasks().length).toBe(0);
+  });
 });
