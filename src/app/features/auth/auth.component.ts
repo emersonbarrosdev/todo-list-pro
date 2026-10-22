@@ -4,6 +4,7 @@ import { FormsModule, ReactiveFormsModule, FormBuilder, Validators, FormGroup } 
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { ToastService } from '../../core/services/toast.service';
+import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-auth',
@@ -48,6 +49,10 @@ import { ToastService } from '../../core/services/toast.service';
               <div class="error-banner" role="alert">
                 {{ errorMessage() }}
               </div>
+            }
+
+            @if (turnstileSiteKey) {
+              <div id="turnstile-container" class="turnstile-box"></div>
             }
 
             <button
@@ -238,6 +243,14 @@ import { ToastService } from '../../core/services/toast.service';
       color: #FCA5A5;
     }
 
+    .turnstile-box {
+      min-height: 65px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 0.25rem 0;
+    }
+
     .btn-block {
       width: 100%;
       padding: 0.75rem 1rem;
@@ -360,6 +373,9 @@ export class AuthComponent implements OnInit {
   resendCountdown = signal<number>(0);
   otpDigits: string[] = ['', '', '', '', '', ''];
 
+  turnstileSiteKey = environment.turnstileSiteKey || '';
+  turnstileToken: string | null = null;
+
   emailForm: FormGroup = this.fb.group({
     email: ['', [Validators.required, Validators.email]],
   });
@@ -370,6 +386,47 @@ export class AuthComponent implements OnInit {
     // Check if user is already authenticated
     if (this.auth.isAuthenticated()) {
       this.router.navigate(['/']);
+      return;
+    }
+
+    if (this.turnstileSiteKey && typeof window !== 'undefined') {
+      this.initTurnstile();
+    }
+  }
+
+  private initTurnstile() {
+    if (!this.turnstileSiteKey) return;
+    const scriptId = 'cf-turnstile-script';
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => this.renderTurnstile();
+      document.head.appendChild(script);
+    } else {
+      setTimeout(() => this.renderTurnstile(), 100);
+    }
+  }
+
+  private renderTurnstile() {
+    const el = document.getElementById('turnstile-container');
+    const w = window as any;
+    if (el && w.turnstile) {
+      try {
+        w.turnstile.render('#turnstile-container', {
+          sitekey: this.turnstileSiteKey,
+          callback: (token: string) => {
+            this.turnstileToken = token;
+          },
+          'expired-callback': () => {
+            this.turnstileToken = null;
+          },
+        });
+      } catch {
+        // ignore if already rendered
+      }
     }
   }
 
@@ -385,13 +442,18 @@ export class AuthComponent implements OnInit {
 
     try {
       const email = this.emailForm.value.email;
-      await this.auth.sendOtp(email);
+      await this.auth.sendOtp(email, this.turnstileToken || undefined);
       this.step.set('otp');
       this.startCountdown(60);
       this.toast.info('Código de verificação enviado! Verifique sua caixa de entrada.');
       setTimeout(() => this.focusFirstDigit(), 100);
     } catch (err: any) {
-      this.errorMessage.set(err.message || 'Não foi possível enviar o código. Tente novamente.');
+      // Safe generic message avoiding account enumeration
+      this.errorMessage.set(
+        err.message?.includes('rate limit')
+          ? 'Muitas solicitações. Aguarde um momento e tente novamente.'
+          : err.message || 'Não foi possível enviar o código. Tente novamente.'
+      );
     } finally {
       this.isLoading.set(false);
     }

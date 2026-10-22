@@ -269,7 +269,14 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
 
                 <!-- PR / URL Relacionada -->
                 <div class="field-group full-width">
-                  <label class="field-label">PR / URL relacionada</label>
+                  <div class="field-label-row">
+                    <label class="field-label">PR / URL relacionada</label>
+                    @if (isValidWebUrl(devPrUrl)) {
+                      <a [href]="devPrUrl" target="_blank" rel="noopener noreferrer" class="link-external" title="Abrir link seguro">
+                        <span>Abrir</span> ↗
+                      </a>
+                    }
+                  </div>
                   <input
                     type="url"
                     class="input"
@@ -369,7 +376,14 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
 
                 <!-- URL de Evidência -->
                 <div class="field-group full-width">
-                  <label class="field-label">URL de evidência / gravação</label>
+                  <div class="field-label-row">
+                    <label class="field-label">URL de evidência / gravação</label>
+                    @if (isValidWebUrl(qaEvidenceUrl)) {
+                      <a [href]="qaEvidenceUrl" target="_blank" rel="noopener noreferrer" class="link-external" title="Abrir link seguro">
+                        <span>Abrir</span> ↗
+                      </a>
+                    }
+                  </div>
                   <input
                     type="url"
                     class="input"
@@ -845,6 +859,29 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       min-width: 100px;
     }
 
+    .field-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.25rem;
+    }
+
+    .link-external {
+      font-size: 0.75rem;
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+      transition: color var(--transition-fast);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+    }
+
+    .link-external:hover {
+      color: var(--primary);
+      text-decoration: underline;
+    }
+
     .description-header {
       display: flex;
       align-items: center;
@@ -1226,6 +1263,16 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
       }, 2500);
     } catch {
       this.savingStatus.set('error');
+    }
+  }
+
+  isValidWebUrl(url: string | undefined): boolean {
+    if (!url) return false;
+    try {
+      const parsed = new URL(url.trim());
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
     }
   }
 }

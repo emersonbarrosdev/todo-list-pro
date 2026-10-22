@@ -67,7 +67,7 @@ export class AuthService {
     }
   }
 
-  async sendOtp(email: string): Promise<{ success: boolean; message?: string }> {
+  async sendOtp(email: string, captchaToken?: string): Promise<{ success: boolean; message?: string }> {
     const normalizedEmail = email.trim().toLowerCase();
     const client = this.supabase.getClient();
 
@@ -77,11 +77,16 @@ export class AuthService {
       return { success: true };
     }
 
+    const options: { shouldCreateUser: boolean; captchaToken?: string } = {
+      shouldCreateUser: true,
+    };
+    if (captchaToken) {
+      options.captchaToken = captchaToken;
+    }
+
     const { error } = await client.auth.signInWithOtp({
       email: normalizedEmail,
-      options: {
-        shouldCreateUser: true,
-      },
+      options,
     });
 
     if (error) {
