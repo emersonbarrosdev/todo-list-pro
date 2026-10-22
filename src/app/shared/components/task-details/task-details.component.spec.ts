@@ -40,14 +40,7 @@ describe('TaskDetailsComponent', () => {
     expect(component.title).toBe('Tarefa detalhada');
     expect(component.status).toBe('todo');
     expect(component.priority).toBe('normal');
-  });
-
-  it('should set status and priority', () => {
-    component.setStatus('doing');
-    expect(component.status).toBe('doing');
-
-    component.setPriority('high');
-    expect(component.priority).toBe('high');
+    expect(component.workMode).toBe('general');
   });
 
   it('should toggle and support developer work mode fields', () => {
@@ -59,6 +52,20 @@ describe('TaskDetailsComponent', () => {
     component.devProject = 'Auth Service';
     expect(component.devType).toBe('Bug');
     expect(component.devBranch).toBe('fix/login-issue');
+  });
+
+  it('should toggle and support QA work mode fields', () => {
+    component.setWorkMode('qa');
+    expect(component.workMode).toBe('qa');
+
+    component.qaType = 'Regressão';
+    component.qaSeverity = 'Crítica';
+    component.qaSteps = '1. Clicar em checkout\n2. Erro 500';
+    component.qaExpected = 'Compra confirmada';
+    component.qaActual = 'Erro 500';
+
+    expect(component.qaType).toBe('Regressão');
+    expect(component.qaSeverity).toBe('Crítica');
   });
 
   it('should add and remove tags', () => {

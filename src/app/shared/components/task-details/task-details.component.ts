@@ -282,6 +282,106 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
             </div>
           }
 
+          <!-- QA Mode Details Section -->
+          @if (workMode === 'qa') {
+            <div class="mode-section qa-section">
+              <div class="section-badge-title">
+                <span class="mode-indicator qa-dot"></span>
+                <span>Detalhes de QA</span>
+              </div>
+
+              <div class="qa-fields-grid">
+                <!-- Tipo de QA -->
+                <div class="field-group">
+                  <label class="field-label">Tipo de teste / issue</label>
+                  <select
+                    class="select"
+                    [(ngModel)]="qaType"
+                    (ngModelChange)="onFieldChanged()"
+                  >
+                    <option value="">Selecione o tipo...</option>
+                    <option value="Teste">Teste</option>
+                    <option value="Bug">Bug</option>
+                    <option value="Regressão">Regressão</option>
+                  </select>
+                </div>
+
+                <!-- Severidade -->
+                <div class="field-group">
+                  <label class="field-label">Severidade</label>
+                  <select
+                    class="select"
+                    [(ngModel)]="qaSeverity"
+                    (ngModelChange)="onFieldChanged()"
+                  >
+                    <option value="">Selecione a severidade...</option>
+                    <option value="Baixa">Baixa</option>
+                    <option value="Média">Média</option>
+                    <option value="Alta">Alta</option>
+                    <option value="Crítica">Crítica</option>
+                  </select>
+                </div>
+
+                <!-- Ambiente -->
+                <div class="field-group full-width">
+                  <label class="field-label">Ambiente testado</label>
+                  <input
+                    type="text"
+                    class="input"
+                    [(ngModel)]="qaEnvironment"
+                    (ngModelChange)="onFieldChanged()"
+                    placeholder="ex.: Staging v2.4, Produção, Chrome / Windows"
+                  />
+                </div>
+
+                <!-- Passos para reproduzir -->
+                <div class="field-group full-width">
+                  <label class="field-label">Passos para reproduzir</label>
+                  <textarea
+                    class="textarea textarea-compact"
+                    [(ngModel)]="qaSteps"
+                    (ngModelChange)="onFieldChanged()"
+                    placeholder="1. Acessar a tela... 2. Clicar em... 3. Observar erro..."
+                  ></textarea>
+                </div>
+
+                <!-- Resultado esperado -->
+                <div class="field-group">
+                  <label class="field-label">Resultado esperado</label>
+                  <textarea
+                    class="textarea textarea-compact"
+                    [(ngModel)]="qaExpected"
+                    (ngModelChange)="onFieldChanged()"
+                    placeholder="O que deveria acontecer..."
+                  ></textarea>
+                </div>
+
+                <!-- Resultado obtido -->
+                <div class="field-group">
+                  <label class="field-label">Resultado obtido</label>
+                  <textarea
+                    class="textarea textarea-compact"
+                    [(ngModel)]="qaActual"
+                    (ngModelChange)="onFieldChanged()"
+                    placeholder="O que de fato ocorreu..."
+                  ></textarea>
+                </div>
+
+                <!-- URL de Evidência -->
+                <div class="field-group full-width">
+                  <label class="field-label">URL de evidência / gravação</label>
+                  <input
+                    type="url"
+                    class="input"
+                    [(ngModel)]="qaEvidenceUrl"
+                    (ngModelChange)="onFieldChanged()"
+                    placeholder="https://loom.com/... ou https://drive.google.com/..."
+                  />
+                </div>
+              </div>
+            </div>
+          }
+
           <!-- Description Block with Markdown Toolbar -->
           <div class="field-block">
             <div class="description-header">
@@ -643,6 +743,10 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       border-left: 3px solid #60A5FA;
     }
 
+    .qa-section {
+      border-left: 3px solid #F472B6;
+    }
+
     .section-badge-title {
       display: flex;
       align-items: center;
@@ -663,10 +767,22 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       box-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
     }
 
-    .dev-fields-grid {
+    .qa-dot {
+      background: #F472B6;
+      box-shadow: 0 0 8px rgba(244, 114, 182, 0.5);
+    }
+
+    .dev-fields-grid,
+    .qa-fields-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 0.75rem;
+    }
+
+    .textarea-compact {
+      min-height: 72px;
+      padding: 0.45rem 0.65rem;
+      font-size: 0.8125rem;
     }
 
     .field-group {
@@ -925,6 +1041,15 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
   devEnvironment: string = '';
   devPrUrl: string = '';
 
+  // QA fields
+  qaType: string = '';
+  qaSeverity: string = '';
+  qaEnvironment: string = '';
+  qaSteps: string = '';
+  qaExpected: string = '';
+  qaActual: string = '';
+  qaEvidenceUrl: string = '';
+
   previewMode = signal<boolean>(false);
   savingStatus = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
@@ -945,13 +1070,23 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
     this.tags = [...(this.task.tags || [])];
     this.checklist = JSON.parse(JSON.stringify(this.task.checklist || []));
 
-    // Load DEV metadata
+    // Load DEV & QA metadata
     if (this.task.metadata) {
       this.devType = (this.task.metadata['type'] as string) || '';
       this.devProject = (this.task.metadata['project'] as string) || '';
       this.devBranch = (this.task.metadata['branch'] as string) || '';
       this.devEnvironment = (this.task.metadata['environment'] as string) || '';
       this.devPrUrl = (this.task.metadata['pr_url'] as string) || '';
+
+      if (this.workMode === 'qa') {
+        this.qaType = (this.task.metadata['type'] as string) || '';
+      }
+      this.qaSeverity = (this.task.metadata['severity'] as string) || '';
+      this.qaEnvironment = (this.task.metadata['environment'] as string) || this.devEnvironment;
+      this.qaSteps = (this.task.metadata['steps_to_reproduce'] as string) || '';
+      this.qaExpected = (this.task.metadata['expected_result'] as string) || '';
+      this.qaActual = (this.task.metadata['actual_result'] as string) || '';
+      this.qaEvidenceUrl = (this.task.metadata['evidence_url'] as string) || '';
     }
 
     // Debounce auto-save at 600ms
@@ -1058,6 +1193,14 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
       if (this.devBranch) metadata['branch'] = this.devBranch;
       if (this.devEnvironment) metadata['environment'] = this.devEnvironment;
       if (this.devPrUrl) metadata['pr_url'] = this.devPrUrl;
+    } else if (this.workMode === 'qa') {
+      if (this.qaType) metadata['type'] = this.qaType;
+      if (this.qaSeverity) metadata['severity'] = this.qaSeverity;
+      if (this.qaEnvironment) metadata['environment'] = this.qaEnvironment;
+      if (this.qaSteps) metadata['steps_to_reproduce'] = this.qaSteps;
+      if (this.qaExpected) metadata['expected_result'] = this.qaExpected;
+      if (this.qaActual) metadata['actual_result'] = this.qaActual;
+      if (this.qaEvidenceUrl) metadata['evidence_url'] = this.qaEvidenceUrl;
     }
 
     const payload: UpdateTaskDto = {
