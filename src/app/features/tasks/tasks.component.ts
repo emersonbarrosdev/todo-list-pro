@@ -65,6 +65,87 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                 </button>
               </div>
             </form>
+
+            <!-- Compact Filter & Sorting Bar -->
+            <div class="filters-bar">
+              <!-- Quick Status Segmented Pills -->
+              <div class="status-pills" role="tablist">
+                <button
+                  type="button"
+                  class="filter-pill"
+                  [class.active]="statusFilter() === 'all'"
+                  (click)="setStatusFilter('all')"
+                >
+                  Todas ({{ totalCount() }})
+                </button>
+                <button
+                  type="button"
+                  class="filter-pill"
+                  [class.active]="statusFilter() === 'todo'"
+                  (click)="setStatusFilter('todo')"
+                >
+                  A fazer
+                </button>
+                <button
+                  type="button"
+                  class="filter-pill"
+                  [class.active]="statusFilter() === 'doing'"
+                  (click)="setStatusFilter('doing')"
+                >
+                  Em andamento
+                </button>
+                <button
+                  type="button"
+                  class="filter-pill"
+                  [class.active]="statusFilter() === 'done'"
+                  (click)="setStatusFilter('done')"
+                >
+                  Concluídas ({{ doneCount() }})
+                </button>
+              </div>
+
+              <!-- Compact Secondary Filters & Sorting Controls -->
+              <div class="secondary-filters">
+                <!-- Priority Filter Dropdown -->
+                <select
+                  class="select select-compact"
+                  [value]="priorityFilter()"
+                  (change)="onPriorityFilterChange($event)"
+                  aria-label="Filtrar por prioridade"
+                >
+                  <option value="all">Prioridade: Todas</option>
+                  <option value="high">Alta</option>
+                  <option value="normal">Normal</option>
+                  <option value="low">Baixa</option>
+                </select>
+
+                <!-- Work Mode Filter Dropdown -->
+                <select
+                  class="select select-compact"
+                  [value]="modeFilter()"
+                  (change)="onModeFilterChange($event)"
+                  aria-label="Filtrar por modo"
+                >
+                  <option value="all">Modo: Todos</option>
+                  <option value="general">Geral</option>
+                  <option value="dev">DEV</option>
+                  <option value="qa">QA</option>
+                </select>
+
+                <!-- Sorting Dropdown -->
+                <select
+                  class="select select-compact"
+                  [value]="sortBy()"
+                  (change)="onSortByChange($event)"
+                  aria-label="Ordenar tarefas"
+                >
+                  <option value="recent">Mais recentes</option>
+                  <option value="oldest">Mais antigas</option>
+                  <option value="due_date">Prazo mais próximo</option>
+                  <option value="priority">Prioridade</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           <!-- Tasks List Section -->
@@ -236,6 +317,68 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       font-size: 0.9375rem;
     }
 
+    .filters-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      padding: 0.25rem 0;
+    }
+
+    .status-pills {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.25rem;
+    }
+
+    .filter-pill {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      border-radius: var(--radius-xs);
+      transition: all var(--transition-fast);
+    }
+
+    .filter-pill:hover {
+      color: var(--text);
+    }
+
+    .filter-pill.active {
+      background: var(--surface-hover);
+      color: var(--text);
+      font-weight: 600;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .secondary-filters {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .select-compact {
+      width: auto;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.8125rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xs);
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+
+    .select-compact:focus {
+      border-color: var(--border-focus);
+      color: var(--text);
+    }
+
     .tasks-container {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -386,8 +529,14 @@ export class TasksComponent implements OnInit {
   currentWorkMode = signal<WorkMode>('general');
   searchQuery = signal<string>('');
 
+  statusFilter = signal<TaskStatus | 'all'>('all');
+  priorityFilter = signal<TaskPriority | 'all'>('all');
+  modeFilter = signal<WorkMode | 'all'>('all');
+  sortBy = signal<'recent' | 'oldest' | 'due_date' | 'priority'>('recent');
+
   selectedTask = signal<Task | null>(null);
 
+  totalCount = computed(() => this.tasks().length);
   activeCount = computed(() => this.tasks().filter((t) => t.status !== 'done').length);
   doneCount = computed(() => this.tasks().filter((t) => t.status === 'done').length);
 
@@ -449,6 +598,10 @@ export class TasksComponent implements OnInit {
     try {
       const data = await this.taskService.getTasks({
         searchQuery: this.searchQuery(),
+        status: this.statusFilter(),
+        priority: this.priorityFilter(),
+        workMode: this.modeFilter(),
+        sortBy: this.sortBy(),
       });
       this.tasks.set(data);
     } catch (err: any) {
@@ -456,6 +609,29 @@ export class TasksComponent implements OnInit {
     } finally {
       this.isLoading.set(false);
     }
+  }
+
+  setStatusFilter(status: TaskStatus | 'all') {
+    this.statusFilter.set(status);
+    this.loadTasks();
+  }
+
+  onPriorityFilterChange(event: Event) {
+    const select = event.target as HTMLSelectElement;
+    this.priorityFilter.set(select.value as TaskPriority | 'all');
+    this.loadTasks();
+  }
+
+  onModeFilterChange(event: Event) {
+    const select = event.target as HTMLSelectElement;
+    this.modeFilter.set(select.value as WorkMode | 'all');
+    this.loadTasks();
+  }
+
+  onSortByChange(event: Event) {
+    const select = event.target as HTMLSelectElement;
+    this.sortBy.set(select.value as any);
+    this.loadTasks();
   }
 
   onSearchChange(query: string) {

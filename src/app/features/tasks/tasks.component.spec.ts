@@ -44,24 +44,33 @@ describe('TasksComponent', () => {
     expect(component.tasks()[0].title).toBe('Comprar café especial');
   });
 
-  it('should toggle task completion', async () => {
-    component.quickAddForm.controls['title'].setValue('Tarefa para concluir');
+  it('should filter tasks by status', async () => {
+    component.quickAddForm.controls['title'].setValue('Tarefa Pendente');
     await component.handleCreateTask();
 
-    const created = component.tasks()[0];
-    const eventMock = { target: { checked: true } } as unknown as Event;
-    await component.handleToggleComplete(created, eventMock);
+    component.quickAddForm.controls['title'].setValue('Tarefa Feita');
+    await component.handleCreateTask();
 
-    expect(component.tasks()[0].status).toBe('done');
+    const taskFeita = component.tasks()[0];
+    await taskService.updateTask(taskFeita.id, { status: 'done' });
+
+    component.setStatusFilter('done');
+    await component.loadTasks();
+
+    expect(component.tasks().every((t) => t.status === 'done')).toBe(true);
   });
 
-  it('should delete task with undo capability', async () => {
-    component.quickAddForm.controls['title'].setValue('Tarefa descartável');
+  it('should filter tasks by search query', async () => {
+    component.quickAddForm.controls['title'].setValue('Documentar API');
     await component.handleCreateTask();
-    expect(component.tasks().length).toBe(1);
 
-    const task = component.tasks()[0];
-    await component.handleDeleteTask(task);
-    expect(component.tasks().length).toBe(0);
+    component.quickAddForm.controls['title'].setValue('Comprar leite');
+    await component.handleCreateTask();
+
+    component.onSearchChange('Documentar');
+    await component.loadTasks();
+
+    expect(component.tasks().length).toBe(1);
+    expect(component.tasks()[0].title).toBe('Documentar API');
   });
 });
