@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators, FormGroup } from '@angular/forms';
 import { HeaderComponent } from '../../shared/components/header/header.component';
 import { OnboardingComponent } from '../../shared/components/onboarding/onboarding.component';
+import { TaskDetailsComponent } from '../../shared/components/task-details/task-details.component';
 import { TaskService } from '../../core/services/task.service';
 import { AuthService } from '../../core/services/auth.service';
 import { ProfileService } from '../../core/services/profile.service';
@@ -12,7 +13,7 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
 @Component({
   selector: 'app-tasks',
   standalone: true,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, HeaderComponent, OnboardingComponent],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, HeaderComponent, OnboardingComponent, TaskDetailsComponent],
   template: `
     <div class="tasks-layout">
       <!-- Shell Header -->
@@ -155,6 +156,15 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       <!-- First login Onboarding modal -->
       @if (showOnboarding()) {
         <app-onboarding (completed)="handleOnboardingComplete($event)"></app-onboarding>
+      }
+
+      <!-- Lateral Details Sheet -->
+      @if (selectedTask(); as currentSelected) {
+        <app-task-details
+          [task]="currentSelected"
+          (taskUpdated)="handleTaskUpdated($event)"
+          (close)="selectedTask.set(null)"
+        ></app-task-details>
       }
     </div>
   `,
@@ -563,6 +573,19 @@ export class TasksComponent implements OnInit {
 
   selectTask(task: Task) {
     this.selectedTask.set(task);
+  }
+
+  async handleTaskUpdated(dto: UpdateTaskDto) {
+    const current = this.selectedTask();
+    if (!current) return;
+
+    try {
+      const updated = await this.taskService.updateTask(current.id, dto);
+      this.tasks.update((curr) => curr.map((t) => (t.id === updated.id ? updated : t)));
+      this.selectedTask.set(updated);
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao atualizar tarefa.');
+    }
   }
 
   isOverdue(dueAt: string | null, status: TaskStatus): boolean {
