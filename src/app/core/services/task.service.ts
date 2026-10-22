@@ -186,7 +186,7 @@ export class TaskService {
       const tasks = this.loadMockTasks();
       const index = tasks.findIndex((t) => t.id === id);
       if (index === -1) {
-        throw new Error('Tarefa não encontrada');
+        throw new Error('Tarefa não encontrada ou permissão negada.');
       }
       const updated = { ...tasks[index], ...payload };
       tasks[index] = updated;
@@ -214,8 +214,13 @@ export class TaskService {
     const user = this.auth.currentUser();
 
     if (!this.supabase.isConfigured || !client || !user) {
-      const tasks = this.loadMockTasks().filter((t) => t.id !== id);
-      this.saveMockTasks(tasks);
+      const tasks = this.loadMockTasks();
+      const target = tasks.find((t) => t.id === id);
+      if (!target) {
+        throw new Error('Tarefa não encontrada ou permissão negada.');
+      }
+      const remaining = tasks.filter((t) => t.id !== id);
+      this.saveMockTasks(remaining);
       return;
     }
 

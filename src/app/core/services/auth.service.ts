@@ -103,8 +103,9 @@ export class AuthService {
 
     if (!this.supabase.isConfigured || !client) {
       // Mock verification mode
+      const userHash = normalizedEmail.replace(/[^a-z0-9]/gi, '_');
       const mockUser: User = {
-        id: 'mock-user-1',
+        id: `mock-user-${userHash}`,
         app_metadata: {},
         user_metadata: { full_name: 'Usuário Demonstração' },
         aud: 'authenticated',

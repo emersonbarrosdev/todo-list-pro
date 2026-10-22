@@ -1,0 +1,40 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { TestBed } from '@angular/core/testing';
+import { ProfileService } from './profile.service';
+import { SupabaseService } from './supabase.service';
+
+describe('ProfileService', () => {
+  let service: ProfileService;
+
+  beforeEach(() => {
+    localStorage.clear();
+    TestBed.configureTestingModule({
+      providers: [ProfileService, SupabaseService],
+    });
+    service = TestBed.inject(ProfileService);
+  });
+
+  it('should get default profile when none exists', async () => {
+    const profile = await service.getProfile('user-test-1');
+    expect(profile).toBeTruthy();
+    expect(profile?.work_mode).toBe('general');
+  });
+
+  it('should update and persist work mode', async () => {
+    const updated = await service.setWorkMode('user-test-1', 'dev');
+    expect(updated.work_mode).toBe('dev');
+
+    const retrieved = await service.getProfile('user-test-1');
+    expect(retrieved?.work_mode).toBe('dev');
+  });
+
+  it('should update display name', async () => {
+    const updated = await service.updateProfile('user-test-1', {
+      display_name: 'Engenheiro Senior',
+      work_mode: 'qa',
+    });
+
+    expect(updated.display_name).toBe('Engenheiro Senior');
+    expect(updated.work_mode).toBe('qa');
+  });
+});

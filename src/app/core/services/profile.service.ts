@@ -68,7 +68,7 @@ export class ProfileService {
     return data as Profile;
   }
 
-  async setWorkMode(userId: string, work_mode: WorkMode): Promise<void> {
-    await this.updateProfile(userId, { work_mode });
+  async setWorkMode(userId: string, work_mode: WorkMode): Promise<Profile> {
+    return this.updateProfile(userId, { work_mode });
   }
 }
