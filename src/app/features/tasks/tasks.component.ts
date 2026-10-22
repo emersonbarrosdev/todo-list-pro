@@ -1,15 +1,577 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule, ReactiveFormsModule, FormBuilder, Validators, FormGroup } from '@angular/forms';
+import { HeaderComponent } from '../../shared/components/header/header.component';
+import { OnboardingComponent } from '../../shared/components/onboarding/onboarding.component';
+import { TaskService } from '../../core/services/task.service';
+import { AuthService } from '../../core/services/auth.service';
+import { ProfileService } from '../../core/services/profile.service';
+import { ToastService } from '../../core/services/toast.service';
+import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto } from '../../core/models/task.model';
 
 @Component({
   selector: 'app-tasks',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, HeaderComponent, OnboardingComponent],
   template: `
-    <div class="tasks-page">
-      <h1>TODO PRO</h1>
-      <p>Gerenciamento de tarefas simples, rápido e moderno.</p>
+    <div class="tasks-layout">
+      <!-- Shell Header -->
+      <app-header
+        [searchQuery]="searchQuery()"
+        [workMode]="currentWorkMode()"
+        (searchQueryChange)="onSearchChange($event)"
+        (newTaskClicked)="focusQuickAdd()"
+        (modeToggle)="cycleWorkMode()"
+      ></app-header>
+
+      <!-- Main Workspace -->
+      <main class="main-content">
+        <div class="app-container">
+          <!-- Top Bar: Summary & Quick Add -->
+          <div class="workspace-header">
+            <div class="summary-meta">
+              <span class="summary-count">
+                <strong>{{ activeCount() }}</strong> {{ activeCount() === 1 ? 'tarefa ativa' : 'tarefas ativas' }}
+              </span>
+              <span class="summary-divider">·</span>
+              <span class="summary-done">{{ doneCount() }} concluídas</span>
+            </div>
+
+            <!-- Quick Add Bar -->
+            <form [formGroup]="quickAddForm" (ngSubmit)="handleCreateTask()" class="quick-add-form">
+              <div class="quick-add-input-wrapper">
+                <input
+                  #quickAddInput
+                  id="input-quick-add"
+                  type="text"
+                  class="input quick-add-input"
+                  placeholder="Criar nova tarefa... (Pressione Enter para salvar)"
+                  maxlength="160"
+                  formControlName="title"
+                  autocomplete="off"
+                />
+                <button
+                  id="btn-add-task"
+                  type="submit"
+                  class="btn btn-primary btn-sm"
+                  [disabled]="quickAddForm.invalid || isSubmitting()"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                  </svg>
+                  <span>Adicionar</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Tasks List Section -->
+          <div class="tasks-container">
+            @if (isLoading()) {
+              <!-- Loading Skeletons -->
+              <div class="skeleton-list">
+                <div class="skeleton-item skeleton"></div>
+                <div class="skeleton-item skeleton"></div>
+                <div class="skeleton-item skeleton"></div>
+              </div>
+            } @else if (tasks().length === 0) {
+              <!-- Empty State -->
+              <div class="empty-state">
+                <div class="empty-icon">✓</div>
+                <h3 class="empty-title">Nenhuma tarefa no momento</h3>
+                <p class="empty-desc">Digite o título no campo acima para criar sua primeira tarefa no TODO PRO.</p>
+              </div>
+            } @else {
+              <!-- Dense Task Items List -->
+              <ul class="task-list" role="list">
+                @for (task of tasks(); track task.id) {
+                  <li
+                    class="task-row"
+                    [class.completed]="task.status === 'done'"
+                    (click)="selectTask(task)"
+                  >
+                    <!-- Checkbox -->
+                    <input
+                      type="checkbox"
+                      class="checkbox-custom"
+                      [checked]="task.status === 'done'"
+                      (click)="$event.stopPropagation()"
+                      (change)="handleToggleComplete(task, $event)"
+                      [attr.aria-label]="'Marcar ' + task.title + ' como concluída'"
+                    />
+
+                    <!-- Content -->
+                    <div class="task-info">
+                      <span class="task-title">{{ task.title }}</span>
+
+                      <!-- Badges metadata -->
+                      <div class="task-badges">
+                        @if (task.work_mode === 'dev' && task.metadata.type) {
+                          <span class="badge badge-dev">DEV · {{ task.metadata.type }}</span>
+                        }
+                        @if (task.work_mode === 'qa' && task.metadata.type) {
+                          <span class="badge badge-qa">QA · {{ task.metadata.type }}</span>
+                        }
+                        @if (task.priority !== 'normal') {
+                          <span class="badge" [ngClass]="'badge-' + task.priority">
+                            {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
+                          </span>
+                        }
+                        @if (task.due_at) {
+                          <span class="badge badge-date" [class.overdue]="isOverdue(task.due_at, task.status)">
+                            📅 {{ formatDate(task.due_at) }}
+                          </span>
+                        }
+                        @for (tag of (task.tags || []).slice(0, 3); track tag) {
+                          <span class="badge">#{{ tag }}</span>
+                        }
+                      </div>
+                    </div>
+
+                    <!-- Row Actions -->
+                    <div class="task-actions" (click)="$event.stopPropagation()">
+                      <button
+                        type="button"
+                        class="btn-delete"
+                        title="Remover tarefa"
+                        (click)="handleDeleteTask(task)"
+                        aria-label="Remover tarefa"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6"></polyline>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                      </button>
+                    </div>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        </div>
+      </main>
+
+      <!-- First login Onboarding modal -->
+      @if (showOnboarding()) {
+        <app-onboarding (completed)="handleOnboardingComplete($event)"></app-onboarding>
+      }
     </div>
   `,
+  styles: [`
+    .tasks-layout {
+      min-height: 100vh;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .main-content {
+      flex: 1;
+      padding: 1.75rem 0 3rem;
+    }
+
+    .workspace-header {
+      margin-bottom: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .summary-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      color: var(--text-secondary);
+    }
+
+    .summary-count strong {
+      color: var(--text);
+    }
+
+    .summary-divider {
+      color: var(--text-muted);
+    }
+
+    .summary-done {
+      color: var(--text-muted);
+    }
+
+    .quick-add-form {
+      width: 100%;
+    }
+
+    .quick-add-input-wrapper {
+      display: flex;
+      align-items: center;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 0.35rem 0.5rem 0.35rem 1rem;
+      box-shadow: var(--shadow-sm);
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    }
+
+    .quick-add-input-wrapper:focus-within {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--primary-soft);
+    }
+
+    .quick-add-input {
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      padding: 0.5rem 0 !important;
+      font-size: 0.9375rem;
+    }
+
+    .tasks-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 0.5rem;
+      box-shadow: var(--shadow-md);
+    }
+
+    .task-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .task-row {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.75rem 0.85rem;
+      border-radius: var(--radius-sm);
+      transition: background var(--transition-fast);
+      cursor: pointer;
+    }
+
+    .task-row:hover {
+      background: var(--surface-hover);
+    }
+
+    .task-row.completed .task-title {
+      text-decoration: line-through;
+      color: var(--text-muted);
+    }
+
+    .task-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .task-title {
+      font-size: 0.9375rem;
+      font-weight: 500;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .task-badges {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .badge-date.overdue {
+      color: var(--danger);
+      background: var(--danger-soft);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .task-actions {
+      display: flex;
+      align-items: center;
+      opacity: 0;
+      transition: opacity var(--transition-fast);
+    }
+
+    .task-row:hover .task-actions {
+      opacity: 1;
+    }
+
+    .btn-delete {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-xs);
+      color: var(--text-muted);
+      transition: all var(--transition-fast);
+    }
+
+    .btn-delete:hover {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .empty-state {
+      padding: 4rem 1.5rem;
+      text-align: center;
+    }
+
+    .empty-icon {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 1rem;
+      border-radius: 50%;
+      background: var(--surface-secondary);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      color: var(--primary);
+    }
+
+    .empty-title {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+
+    .empty-desc {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      max-width: 380px;
+      margin: 0 auto;
+    }
+
+    .skeleton-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 0.75rem;
+    }
+
+    .skeleton-item {
+      height: 48px;
+      width: 100%;
+    }
+  `]
 })
-export class TasksComponent {}
+export class TasksComponent implements OnInit {
+  private fb = inject(FormBuilder);
+  private taskService = inject(TaskService);
+  private auth = inject(AuthService);
+  private profileService = inject(ProfileService);
+  private toast = inject(ToastService);
+
+  tasks = signal<Task[]>([]);
+  isLoading = signal<boolean>(true);
+  isSubmitting = signal<boolean>(false);
+  showOnboarding = signal<boolean>(false);
+  currentWorkMode = signal<WorkMode>('general');
+  searchQuery = signal<string>('');
+
+  selectedTask = signal<Task | null>(null);
+
+  activeCount = computed(() => this.tasks().filter((t) => t.status !== 'done').length);
+  doneCount = computed(() => this.tasks().filter((t) => t.status === 'done').length);
+
+  quickAddForm: FormGroup = this.fb.group({
+    title: ['', [Validators.required, Validators.maxLength(160)]],
+  });
+
+  async ngOnInit() {
+    await this.checkUserProfile();
+    await this.loadTasks();
+  }
+
+  async checkUserProfile() {
+    const user = this.auth.currentUser();
+    if (user) {
+      try {
+        const profile = await this.profileService.getProfile(user.id);
+        const onboardingDone = localStorage.getItem(`onboarding_done_${user.id}`);
+        if (!onboardingDone && (!profile || !profile.work_mode)) {
+          this.showOnboarding.set(true);
+        } else if (profile?.work_mode) {
+          this.currentWorkMode.set(profile.work_mode);
+        }
+      } catch {
+        // fallback
+      }
+    }
+  }
+
+  async handleOnboardingComplete(mode: WorkMode) {
+    this.currentWorkMode.set(mode);
+    this.showOnboarding.set(false);
+    const user = this.auth.currentUser();
+    if (user) {
+      localStorage.setItem(`onboarding_done_${user.id}`, 'true');
+      try {
+        await this.profileService.setWorkMode(user.id, mode);
+        this.toast.success(`Modo ${mode.toUpperCase()} ativado com sucesso!`);
+      } catch {
+        // local fallback
+      }
+    }
+  }
+
+  cycleWorkMode() {
+    const modes: WorkMode[] = ['general', 'dev', 'qa'];
+    const nextIdx = (modes.indexOf(this.currentWorkMode()) + 1) % modes.length;
+    const nextMode = modes[nextIdx];
+    this.currentWorkMode.set(nextMode);
+    const user = this.auth.currentUser();
+    if (user) {
+      this.profileService.setWorkMode(user.id, nextMode);
+    }
+    this.toast.info(`Alternado para o modo ${nextMode.toUpperCase()}`);
+  }
+
+  async loadTasks() {
+    this.isLoading.set(true);
+    try {
+      const data = await this.taskService.getTasks({
+        searchQuery: this.searchQuery(),
+      });
+      this.tasks.set(data);
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao carregar tarefas.');
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
+
+  onSearchChange(query: string) {
+    this.searchQuery.set(query);
+    this.loadTasks();
+  }
+
+  focusQuickAdd() {
+    const el = document.getElementById('input-quick-add');
+    if (el) el.focus();
+  }
+
+  async handleCreateTask() {
+    if (this.quickAddForm.invalid) return;
+
+    const title = this.quickAddForm.value.title.trim();
+    this.isSubmitting.set(true);
+
+    // Optimistic UI representation
+    const tempId = 'temp_' + Date.now();
+    const optimisticTask: Task = {
+      id: tempId,
+      user_id: this.auth.currentUser()?.id || 'guest',
+      title,
+      description: '',
+      status: 'todo',
+      priority: 'normal',
+      due_at: null,
+      tags: [],
+      checklist: [],
+      work_mode: this.currentWorkMode(),
+      metadata: {},
+      completed_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Immediately show in UI
+    this.tasks.update((curr) => [optimisticTask, ...curr]);
+    this.quickAddForm.reset();
+
+    try {
+      const persisted = await this.taskService.createTask({
+        title,
+        work_mode: this.currentWorkMode(),
+      });
+
+      // Replace temp task with real persisted task
+      this.tasks.update((curr) => curr.map((t) => (t.id === tempId ? persisted : t)));
+    } catch (err: any) {
+      // Revert optimistic addition if failed
+      this.tasks.update((curr) => curr.filter((t) => t.id !== tempId));
+      this.toast.error(err.message || 'Falha ao salvar tarefa. Estado revertido.');
+    } finally {
+      this.isSubmitting.set(false);
+    }
+  }
+
+  async handleToggleComplete(task: Task, event: Event) {
+    const checkbox = event.target as HTMLInputElement;
+    const isNowDone = checkbox.checked;
+    const newStatus: TaskStatus = isNowDone ? 'done' : 'todo';
+    const originalStatus = task.status;
+
+    // Optimistic UI update
+    this.tasks.update((curr) =>
+      curr.map((t) =>
+        t.id === task.id ? { ...t, status: newStatus, completed_at: isNowDone ? new Date().toISOString() : null } : t
+      )
+    );
+
+    try {
+      await this.taskService.updateTask(task.id, {
+        status: newStatus,
+      });
+    } catch (err: any) {
+      // Revert on error
+      this.tasks.update((curr) =>
+        curr.map((t) => (t.id === task.id ? { ...t, status: originalStatus } : t))
+      );
+      checkbox.checked = !isNowDone;
+      this.toast.error(err.message || 'Erro ao atualizar tarefa. Estado restaurado.');
+    }
+  }
+
+  async handleDeleteTask(task: Task) {
+    const originalTasks = [...this.tasks()];
+
+    // Optimistic removal
+    this.tasks.update((curr) => curr.filter((t) => t.id !== task.id));
+
+    let undone = false;
+    this.toast.show({
+      message: `Tarefa "${task.title}" removida.`,
+      type: 'info',
+      duration: 5000,
+      actionLabel: 'Desfazer',
+      onAction: () => {
+        undone = true;
+        this.tasks.set(originalTasks);
+      },
+    });
+
+    setTimeout(async () => {
+      if (!undone) {
+        try {
+          await this.taskService.deleteTask(task.id);
+        } catch {
+          this.tasks.set(originalTasks);
+          this.toast.error('Erro ao deletar tarefa.');
+        }
+      }
+    }, 5100);
+  }
+
+  selectTask(task: Task) {
+    this.selectedTask.set(task);
+  }
+
+  isOverdue(dueAt: string | null, status: TaskStatus): boolean {
+    if (!dueAt || status === 'done') return false;
+    return new Date(dueAt).getTime() < Date.now();
+  }
+
+  formatDate(dateStr: string): string {
+    const d = new Date(dateStr);
+    return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+  }
+}

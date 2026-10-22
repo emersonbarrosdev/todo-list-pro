@@ -1,4 +1,5 @@
 import { WorkMode } from './profile.model';
+export { WorkMode };
 
 export type TaskStatus = 'todo' | 'doing' | 'done';
 export type TaskPriority = 'low' | 'normal' | 'high';
