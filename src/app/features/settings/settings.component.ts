@@ -342,7 +342,7 @@ export class SettingsComponent implements OnInit {
 
     if (user) {
       try {
-        const profile = await this.profileService.getProfile(user.id);
+        const profile = await this.profileService.getProfile();
         if (profile?.work_mode) {
           this.selectedMode.set(profile.work_mode);
         }
@@ -357,12 +357,9 @@ export class SettingsComponent implements OnInit {
   }
 
   async savePreferences() {
-    const user = this.auth.currentUser();
     this.isSaving.set(true);
     try {
-      if (user) {
-        await this.profileService.setWorkMode(user.id, this.selectedMode());
-      }
+      await this.profileService.setWorkMode(this.selectedMode());
       this.toast.success('Modo de trabalho salvo com sucesso!');
     } catch (err: any) {
       this.toast.error(err.message || 'Erro ao salvar preferência.');

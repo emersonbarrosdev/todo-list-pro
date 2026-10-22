@@ -20,7 +20,6 @@ export interface ClerkAuthState {
 export class ClerkService {
   private clerkInstance: Clerk | null = null;
   private pendingEmail: string = '';
-  private isSignUpFlow: boolean = false;
   private initPromise: Promise<void> | null = null;
 
   private state = signal<ClerkAuthState>({
@@ -54,13 +53,14 @@ export class ClerkService {
         const clerk = new Clerk(environment.clerkPublishableKey);
         await clerk.load({
           standardBrowser: true,
+          touchSession: false,
         });
 
         this.clerkInstance = clerk;
 
         this.syncUserState();
 
-        // Listen for user / session changes
+        // Listen for user / session changes without triggering API reloads
         clerk.addListener(() => {
           this.syncUserState();
         });
@@ -127,51 +127,34 @@ export class ClerkService {
     }
 
     try {
-      // 1. Try signing in existing user
-      try {
-        const signInAttempt = await client.signIn.create({
-          identifier: normalizedEmail,
+      // Official Clerk Passwordless Flow: signUpIfMissing avoids 422 for new users
+      const signInAttempt = await client.signIn.create({
+        identifier: normalizedEmail,
+        signUpIfMissing: true,
+      });
+
+      const emailCodeFactor = signInAttempt.supportedFirstFactors?.find(
+        (f) => f.strategy === 'email_code'
+      );
+
+      if (emailCodeFactor && 'emailAddressId' in emailCodeFactor) {
+        await signInAttempt.prepareFirstFactor({
+          strategy: 'email_code',
+          emailAddressId: emailCodeFactor.emailAddressId as string,
         });
-
-        const emailCodeFactor = signInAttempt.supportedFirstFactors?.find(
-          (f) => f.strategy === 'email_code'
-        );
-
-        if (emailCodeFactor && 'emailAddressId' in emailCodeFactor) {
-          await signInAttempt.prepareFirstFactor({
-            strategy: 'email_code',
-            emailAddressId: emailCodeFactor.emailAddressId as string,
-          });
-          this.isSignUpFlow = false;
-          return { success: true };
-        }
-
-        // Check if Clerk instance currently only allows password for existing users
-        const hasPasswordFactor = signInAttempt.supportedFirstFactors?.some(
-          (f) => f.strategy === 'password'
-        );
-        if (hasPasswordFactor) {
-          throw new Error(
-            'No painel do Clerk, desative a exigência de senha e ative o código por e-mail (Email verification code) para login 100% sem senha.'
-          );
-        }
-      } catch (signInErr: any) {
-        if (signInErr?.message?.includes('painel do Clerk')) {
-          throw signInErr;
-        }
-        // If user not found, transition silently to sign-up
+        return { success: true };
       }
 
-      // 2. User not found or sign up required: create sign-up
-      const signUpAttempt = await client.signUp.create({
-        emailAddress: normalizedEmail,
-      });
+      // Check if password factor is required
+      const hasPasswordFactor = signInAttempt.supportedFirstFactors?.some(
+        (f) => f.strategy === 'password'
+      );
+      if (hasPasswordFactor) {
+        throw new Error(
+          'No painel do Clerk, desative a exigência de senha e ative o código por e-mail para autenticação passwordless.'
+        );
+      }
 
-      await signUpAttempt.prepareEmailAddressVerification({
-        strategy: 'email_code',
-      });
-
-      this.isSignUpFlow = true;
       return { success: true };
     } catch (err: any) {
       const msg = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || 'Falha ao enviar código.';
@@ -200,22 +183,23 @@ export class ClerkService {
     const client = this.clerkInstance.client;
 
     try {
-      if (this.isSignUpFlow) {
-        let completeSignUp = await client.signUp.attemptEmailAddressVerification({
-          code: cleanCode,
-        });
+      // 1. Attempt first factor verification on the sign-in
+      const completeSignIn = await client.signIn.attemptFirstFactor({
+        strategy: 'email_code',
+        code: cleanCode,
+      });
 
-        // If email code was verified, but Clerk configuration requires a password:
-        if (
-          completeSignUp.status === 'missing_requirements' &&
-          completeSignUp.missingFields?.includes('password')
-        ) {
-          // Provide an automatic high-entropy password to fulfill Clerk requirement
-          const autoPassword = 'Pwd_' + crypto.randomUUID().replace(/-/g, '') + '_!9aZ#';
-          completeSignUp = await client.signUp.update({
-            password: autoPassword,
-          });
-        }
+      if (completeSignIn.status === 'complete' && completeSignIn.createdSessionId) {
+        await this.clerkInstance.setActive({ session: completeSignIn.createdSessionId });
+        this.syncUserState();
+        return true;
+      }
+
+      // 2. If user did not exist, Clerk flags firstFactorVerification as transferable
+      if ((completeSignIn as any).firstFactorVerification?.status === 'transferable') {
+        const completeSignUp = await client.signUp.create({
+          transfer: true,
+        });
 
         if (completeSignUp.status === 'complete' && completeSignUp.createdSessionId) {
           await this.clerkInstance.setActive({ session: completeSignUp.createdSessionId });
@@ -223,22 +207,20 @@ export class ClerkService {
           return true;
         }
 
-        if (completeSignUp.status === 'missing_requirements') {
-          const missing = (completeSignUp.missingFields || []).join(', ');
-          throw new Error(
-            `No painel do Clerk, desative a exigência de senha em 'User & Authentication' (campos pendentes: ${missing}).`
-          );
-        }
-      } else {
-        const completeSignIn = await client.signIn.attemptFirstFactor({
-          strategy: 'email_code',
-          code: cleanCode,
-        });
+        if (
+          completeSignUp.status === 'missing_requirements' &&
+          completeSignUp.missingFields?.includes('password')
+        ) {
+          const autoPassword = 'Pwd_' + crypto.randomUUID().replace(/-/g, '') + '_!9aZ#';
+          const finalizedSignUp = await client.signUp.update({
+            password: autoPassword,
+          });
 
-        if (completeSignIn.status === 'complete' && completeSignIn.createdSessionId) {
-          await this.clerkInstance.setActive({ session: completeSignIn.createdSessionId });
-          this.syncUserState();
-          return true;
+          if (finalizedSignUp.status === 'complete' && finalizedSignUp.createdSessionId) {
+            await this.clerkInstance.setActive({ session: finalizedSignUp.createdSessionId });
+            this.syncUserState();
+            return true;
+          }
         }
       }
 

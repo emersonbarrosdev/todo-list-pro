@@ -1,44 +1,74 @@
-# 🛡️ Diretrizes do Plano Gratuito (100% Free Tier) - TODO PRO
+# Diretrizes de Operação 100% Free Tier - TODO PRO
 
-Este documento registra os limites operacionais, arquitetura e boas práticas para manter o **TODO PRO** permanentemente **100% gratuito**, sem custos ocultos, cobranças automáticas ou necessidade de cartão de crédito.
-
----
-
-## 📊 Limites Operacionais dos Serviços Gratuitos
-
-| Serviço | Plano | Limites Gratuitos Oficiais | Regra de Uso no TODO PRO |
-| :--- | :--- | :--- | :--- |
-| **Clerk Auth** | Hobby ($0) | • Até **50.000** Usuários Ativos Retidos/mês (MRU)<br>• Código OTP de 6 dígitos por e-mail incluído<br>• Aplicações ilimitadas | Não utilizar recursos marcados como Pro ou SMS. Utilizar exclusivamente verificação por e-mail OTP de 6 dígitos. |
-| **Cloudflare Workers** | Free ($0) | • **100.000** requisições por dia<br>• 10ms de tempo de CPU por requisição | Rotas de API leves (`/api/tasks`, `/api/profile`) servidas diretamente do Edge, sem cold-start. |
-| **Cloudflare Static Assets** | Free ($0) | • Transferência e hospedagem de assets ilimitadas dentro da cota do Workers | Entrega o SPA Angular compilado (`dist/todo-list/browser`) com compressão e cache nos servidores globais. |
-| **Cloudflare D1 (SQL)** | Free ($0) | • **5.000.000** de leituras de linha/dia (rows read)<br>• **100.000** de escritas de linha/dia (rows written)<br>• **500 MB** de armazenamento por banco<br>• **5 GB** totais por conta | Consultas com índices obrigatórios, sem full table scan. Paginação e filtros eficientes. |
-
-> [!NOTE]
-> Os limites dos provedores podem ser atualizados periodicamente por Clerk e Cloudflare. Consulte os painéis oficiais para atualizações de termos.
+Este documento define os parâmetros operacionais do **TODO PRO** para garantir a permanência estrita nos planos gratuitos de todos os serviços de infraestrutura utilizados. Nenhuma alteração, feature ou automação pode modificar ou atualizar planos para versões pagas.
 
 ---
 
-## ⚡ Estratégias de Otimização e Prevenção de Custos
+## 1. Arquitetura e Limites dos Planos Gratuitos
 
-Para garantir que o TODO PRO nunca atinja ou ultrapasse os limites gratuitos:
+### 1.1 Clerk (Plano Hobby - $0/mês)
+- **Autenticação**: Passwordless com Código OTP por E-mail (Email Verification Code).
+- **Sem Senha**: Não exige memorização ou redefinição de senhas.
+- **Configurações Específicas**:
+  - `touchSession: false`: Desabilita chamadas automáticas de `/touch` ao alternar foco de abas do navegador.
+  - `signUpIfMissing: true`: Fluxo oficial unificado de sign-in/sign-up sem geração de erro HTTP 422 para novos usuários.
+  - `skipCache: false`: Mantém o cache padrão de token de sessão do Clerk, sem forçar requisições adicionais de token.
+  - Chamadas de `/tokens` ocorrem em conformidade com o tempo de vida do JWT (aproximadamente a cada 1 minuto) direcionadas à infraestrutura do Clerk (`*.clerk.accounts.dev`), não consumindo requisições do Worker ou leituras/escritas do D1.
 
-1. **Zero Polling Desnecessário**:
-   - A aplicação não executa loops de verificação (`setInterval` / polling contínuo).
-   - O estado é reativo utilizando Angular Signals e eventos orientados à ação do usuário.
-2. **Cache Local no Frontend**:
-   - O `TaskService` e `ProfileService` mantêm cache local em `localStorage` para exibição instantânea, evitando chamadas repetidas à API.
-3. **Debounce em Buscas**:
-   - A busca por tarefas aplica debounce para não emitir uma requisição a cada caractere digitado.
-4. **Consultas Indexadas no D1**:
-   - Toda consulta no banco D1 utiliza o índice `tasks(user_id)` ou `tasks(user_id, status)`, garantindo que apenas as linhas do usuário sejam lidas, mantendo o consumo de *rows read* mínimo.
-5. **Falha Controlada**:
-   - Caso a rede esteja offline ou o limite gratuito de requisições diárias seja atingido, a aplicação opera em modo resiliente com fallback local, informando amigavelmente o usuário sem travar e **sem realizar upgrades automáticos**.
+### 1.2 Cloudflare Workers (Plano Free - $0/mês)
+- **Cota**: 100.000 requisições diárias.
+- **Isolamento de Assets Estáticos**:
+  - Todos os arquivos estáticos (HTML, CSS, JS, SVG, fontes, imagens) são servidos diretamente pela CDN global do Cloudflare Static Assets (`run_worker_first: ["/api/*"]`).
+  - Navegações de SPA e carregamento de bundles JavaScript não invocam o Worker.
+  - Somente requisições destinadas ao prefixo `/api/*` acionam o Worker.
+- **Validação Criptográfica de JWT Local (Networkless)**:
+  - O Worker valida tokens RS256 localmente utilizando a Web Crypto API (`crypto.subtle`) e a chave pública JWK do Clerk.
+  - Zero chamadas externas à API de Backend do Clerk por requisição `/api/tasks` ou `/api/profile`.
+- **Tratamento de Limite (HTTP 429)**:
+  - Caso o limite de 100.000 requisições diárias seja atingido, a aplicação exibe mensagem clara: *"Limite gratuito de requisições atingido. Tente novamente mais tarde."*
+  - Em nenhuma hipótese deve haver ativação ou deploy em plano Workers Paid.
+
+### 1.3 Cloudflare D1 (Plano Free - $0/mês)
+- **Cotas**:
+  - **Leituras**: 5.000.000 de linhas lidas/dia.
+  - **Escritas**: 100.000 de linhas gravadas/dia.
+  - **Armazenamento**: 5 GB.
+- **Otimização de Linhas Lidas (Rows Read)**:
+  - Carregamento inicial de tarefas (`GET /api/tasks`) realizado **uma única vez** no startup após o login.
+  - Todas as operações de filtro (status, prioridade, modo), busca por texto e ordenação ocorrem estritamente **em memória no client-side** (Signals do Angular).
+  - Nenhuma chamada `GET /api/tasks` ao digitar no campo de busca, clicar em abas ou trocar ordenação.
+- **Otimização de Linhas Gravadas (Rows Written)**:
+  - Remoção completa de qualquer autosave, debounce contínuo ou gravação em blur/change/input.
+  - As alterações em formulários (título, descrição, prioridade, status, prazos, tags, checklists, metadados DEV/QA) permanecem exclusivamente no estado local.
+  - Persistência única no D1 exclusivamente no clique de **"Salvar"** ou via atalho **Ctrl+S / Cmd+S**.
+  - Criação de nova tarefa realiza escrita no D1 exclusivamente ao submeter o formulário (**"Criar tarefa"**).
+  - Tratamento de erro resiliente: se a gravação no D1 falhar, o estado da UI permanece `dirty` com aviso amigável, impedindo perda de dados digitados pelo usuário e sem falsos registros no cliente.
 
 ---
 
-## 🔒 Princípio de Cartão Zero e Não-Upgrade
+## 2. Matriz de Auditoria de Requisições por Ação
 
-- **Proibido ativar Clerk Pro ou Billing**: A conta permanece no plano Hobby.
-- **Proibido ativar Workers Paid**: A conta Cloudflare permanece no plano Free.
-- **Proibido cadastrar cartão de crédito** como requisito para continuar a execução.
-- Se qualquer recurso futuro exigir pagamento, ele **não será ativado**, priorizando alternativas gratuitas ou mantendo a funcionalidade fora do escopo.
+| Ação do Usuário | Chamadas Worker API | Chamadas de Escrita D1 | Comportamento |
+| :--- | :---: | :---: | :--- |
+| **Abrir Aplicação** | 2 | 0 | 1 `GET /api/profile` + 1 `GET /api/tasks` |
+| **Editar Título / Descrição** | 0 | 0 | Estado local do formulário (`dirty`) |
+| **Marcar / Desmarcar Checklist** | 0 | 0 | Modificação local do array |
+| **Alterar Prioridade** | 0 | 0 | Seleção local |
+| **Alterar Status** | 0 | 0 | Seleção local |
+| **Adicionar / Remover Tags** | 0 | 0 | Modificação local |
+| **Campos DEV / QA** | 0 | 0 | Modificação local |
+| **Filtrar (Todas/A fazer/Doing/Done)** | 0 | 0 | Filtro client-side em memória |
+| **Buscar Texto (cada tecla)** | 0 | 0 | Filtro client-side em memória |
+| **Ordenar (Recentes/Prazo/Prioridade)** | 0 | 0 | Ordenação client-side em memória |
+| **Alternar de Aba / Foco** | 0 | 0 | `touchSession: false` impede `/touch` |
+| **Clicar "Salvar"** | 1 | 1 | `PUT /api/tasks/:id` com estado consolidado |
+| **Criar Nova Tarefa** | 1 | 1 | `POST /api/tasks` ao clicar em Criar |
+| **Excluir Tarefa** | 1 | 1 | `DELETE /api/tasks/:id` após confirmação |
+| **Clicar "Atualizar"** | 1 | 0 | `GET /api/tasks` sob demanda explícita |
+
+---
+
+## 3. Regras de Manutenção
+1. Qualquer upgrade de infraestrutura deve ser validado manualmente.
+2. Cartão de crédito não deve ser associado para evitar cobranças automáticas imprevistas.
+3. Não habilitar WebSockets, Server-Sent Events, polling ou sincronizações realtime automáticas no cliente.

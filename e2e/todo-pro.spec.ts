@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 
 test.describe('TODO PRO End-to-End Application Flow', () => {
   test.beforeEach(async ({ page }) => {
-    // Start with a clean local storage session
     await page.goto('/auth');
     await page.evaluate(() => localStorage.clear());
   });
@@ -27,9 +26,8 @@ test.describe('TODO PRO End-to-End Application Flow', () => {
     await page.locator('.otp-digit').nth(4).fill('5');
     await page.locator('.otp-digit').nth(5).fill('6');
 
-    // 6th digit automatically submits OTP verification
-    const quickAddInput = page.locator('#input-quick-add');
-    await expect(quickAddInput).toBeVisible({ timeout: 15000 });
+    // Wait for tasks view to load
+    await expect(page.locator('.workspace-header')).toBeVisible({ timeout: 15000 });
 
     // 4. Handle onboarding modal if displayed
     const onboardingCard = page.locator('.onboarding-card');
@@ -37,44 +35,59 @@ test.describe('TODO PRO End-to-End Application Flow', () => {
       await page.locator('.mode-card').first().click();
     }
 
-    // 5. Create new task
-    await expect(quickAddInput).toBeVisible();
-    await quickAddInput.fill('Implementar suíte E2E automatizada');
-    await page.locator('#btn-add-task').click();
+    // 5. Open New Task modal
+    await page.locator('#btn-new-task').click();
+    const detailsSheet = page.locator('.details-sheet');
+    await expect(detailsSheet).toBeVisible();
 
-    // Verify task row appears
+    // Fill title
+    const titleInput = page.locator('#task-detail-title');
+    await titleInput.fill('Implementar suíte E2E automatizada');
+
+    // Click explicit Criar tarefa button
+    await page.locator('#btn-save-task').click();
+    await expect(detailsSheet).toBeHidden({ timeout: 5000 });
+
+    // Verify task row appears in list
     const taskRow = page.locator('.task-row').first();
     await expect(taskRow).toBeVisible();
     await expect(taskRow.locator('.task-title')).toContainText('Implementar suíte E2E automatizada');
 
-    // 6. Open task details sheet
+    // 6. Open task details sheet for editing
     await taskRow.click();
-    const detailsSheet = page.locator('.details-sheet');
     await expect(detailsSheet).toBeVisible();
 
     // 7. Edit description with markdown
     const descTextarea = page.locator('.description-textarea');
     await descTextarea.fill('Esta é uma **descrição importante** da tarefa com checklist.');
-    
+
     // 8. Change priority to High via pill button
     await page.locator('.pill-btn', { hasText: 'Alta' }).click();
 
-    // Verify auto-save badge
-    await expect(page.locator('.status-saved')).toBeVisible({ timeout: 10000 });
+    // Verify button is dirty and click Salvar
+    const saveBtn = page.locator('#btn-save-task');
+    await expect(saveBtn).toHaveClass(/dirty/);
+    await saveBtn.click();
 
-    // 9. Close details panel using Escape
-    await page.keyboard.press('Escape');
+    // Verify saved state
+    await expect(saveBtn).toContainText('Salvo');
+
+    // Close details panel
+    await page.locator('.btn-close').click();
     await expect(detailsSheet).toBeHidden();
 
     // Verify badge on task row reflects High priority
     await expect(taskRow.locator('.badge-high')).toBeVisible();
 
-    // 10. Complete task via checkbox
-    const taskCheckbox = taskRow.locator('.checkbox-custom');
-    await taskCheckbox.check();
-    await expect(taskRow).toHaveClass(/completed/);
+    // 9. Change status to Done
+    await taskRow.click();
+    await expect(detailsSheet).toBeVisible();
+    await page.locator('.pill-btn', { hasText: 'Concluída' }).click();
+    await saveBtn.click();
+    await expect(saveBtn).toContainText('Salvo');
+    await page.locator('.btn-close').click();
 
-    // 11. Test filters
+    // 10. Test filters (pure client-side)
     // Filter "A fazer" should hide the completed task
     await page.locator('.filter-pill', { hasText: 'A fazer' }).click();
     await expect(page.locator('.task-row')).toHaveCount(0);
@@ -87,38 +100,33 @@ test.describe('TODO PRO End-to-End Application Flow', () => {
     await page.locator('.filter-pill', { hasText: 'Todas' }).click();
     await expect(page.locator('.task-row')).toHaveCount(1);
 
-    // 12. Remove task
+    // 11. Remove task with dialog confirmation
+    page.on('dialog', (dialog) => dialog.accept());
     const deleteBtn = page.locator('.btn-delete').first();
     await deleteBtn.click();
 
-    // Verify optimistic deletion
     await expect(page.locator('.task-row')).toHaveCount(0);
-
-    // Verify Toast with undo option
-    const toast = page.locator('.toast-item', { hasText: 'removida' });
-    await expect(toast).toBeVisible();
-    await expect(toast).toContainText('Desfazer');
   });
 
   test('should support keyboard shortcuts N, Ctrl+K, and Esc', async ({ page }) => {
-    // Authenticate test session directly in localStorage
     await page.goto('/auth');
     await page.evaluate(() => {
       const mockUser = { id: 'mock-user-shortcuts', email: 'shortcuts@todopro.com' };
-      localStorage.setItem('todo_pro_mock_auth', JSON.stringify({ user: mockUser, session: { user: mockUser } }));
+      localStorage.setItem('todo_pro_clerk_mock_user', JSON.stringify(mockUser));
       localStorage.setItem('onboarding_done_mock-user-shortcuts', 'true');
     });
 
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    await expect(page.locator('#input-quick-add')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('.workspace-header')).toBeVisible({ timeout: 15000 });
 
-    // Press 'N' to focus quick add input
+    // Press 'N' to open new task sheet
     await page.keyboard.press('n');
-    await expect(page.locator('#input-quick-add')).toBeFocused();
+    await expect(page.locator('.details-sheet')).toBeVisible();
 
-    // Blur input
-    await page.locator('#input-quick-add').blur();
+    // Press 'Esc' to close sheet
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.details-sheet')).toBeHidden();
 
     // Press 'Control+K' to focus search input
     await page.keyboard.press('Control+k');

@@ -1,8 +1,7 @@
-import { Component, EventEmitter, Input, OnDestroy, OnInit, Output, signal } from '@angular/core';
+import { Component, EventEmitter, HostListener, Input, OnInit, Output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subject, Subscription, debounceTime } from 'rxjs';
-import { Task, ChecklistItem, UpdateTaskDto, TaskStatus, TaskPriority, WorkMode } from '../../../core/models/task.model';
+import { Task, ChecklistItem, UpdateTaskDto, TaskStatus, TaskPriority, WorkMode, CreateTaskDto } from '../../../core/models/task.model';
 import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
 
 @Component({
@@ -10,36 +9,56 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
   standalone: true,
   imports: [CommonModule, FormsModule, SafeMarkdownPipe],
   template: `
-    <div class="details-backdrop" (click)="close.emit()">
+    <div class="details-backdrop" (click)="requestClose()">
       <aside class="details-sheet" (click)="$event.stopPropagation()" role="dialog" aria-labelledby="task-detail-title">
         <!-- Sheet Header -->
         <div class="sheet-header">
-          <div class="status-indicator">
-            @if (savingStatus() === 'saving') {
-              <span class="status-badge status-saving">
+          <div class="header-left">
+            <!-- Save Button State Machine -->
+            <button
+              id="btn-save-task"
+              type="button"
+              class="btn-save"
+              [class.clean]="savingStatus() === 'clean'"
+              [class.dirty]="savingStatus() === 'dirty'"
+              [class.saving]="savingStatus() === 'saving'"
+              [class.saved]="savingStatus() === 'saved'"
+              [class.error]="savingStatus() === 'error'"
+              [disabled]="savingStatus() === 'clean' || savingStatus() === 'saving' || !title.trim()"
+              (click)="handleSave()"
+              title="Salvar alterações (Ctrl+S / Cmd+S)"
+            >
+              @if (savingStatus() === 'saving') {
                 <span class="spinner-mini"></span>
                 <span>Salvando...</span>
-              </span>
-            } @else if (savingStatus() === 'saved') {
-              <span class="status-badge status-saved">
+              } @else if (savingStatus() === 'saved') {
                 <span>✓ Salvo</span>
-              </span>
-            } @else if (savingStatus() === 'error') {
-              <span class="status-badge status-error">
-                <span>✕ Erro ao salvar</span>
-              </span>
+              } @else if (savingStatus() === 'error') {
+                <span>✕ Tentar novamente</span>
+              } @else if (isNew) {
+                <span>Criar tarefa</span>
+              } @else {
+                <span>Salvar</span>
+              }
+            </button>
+
+            @if (savingStatus() === 'error') {
+              <span class="error-text">Não foi possível salvar. Tente novamente.</span>
             }
           </div>
 
-          <button
-            type="button"
-            class="btn-close"
-            (click)="close.emit()"
-            aria-label="Fechar painel de detalhes"
-            title="Fechar (Esc)"
-          >
-            ✕
-          </button>
+          <div class="header-right">
+            <span class="shortcut-hint"><kbd>Ctrl+S</kbd></span>
+            <button
+              type="button"
+              class="btn-close"
+              (click)="requestClose()"
+              aria-label="Fechar painel de detalhes"
+              title="Fechar (Esc)"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         <div class="sheet-body">
@@ -50,7 +69,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
               type="text"
               class="title-input"
               [(ngModel)]="title"
-              (ngModelChange)="onFieldChanged()"
+              (ngModelChange)="markDirty()"
               placeholder="Título da tarefa..."
               maxlength="160"
             />
@@ -159,7 +178,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                   type="date"
                   class="input date-picker"
                   [(ngModel)]="dueDate"
-                  (ngModelChange)="onDueDateChanged()"
+                  (ngModelChange)="markDirty()"
                 />
                 @if (dueDate) {
                   <button
@@ -220,7 +239,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                   <select
                     class="select"
                     [(ngModel)]="devType"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                   >
                     <option value="">Selecione o tipo...</option>
                     <option value="Feature">Feature</option>
@@ -238,7 +257,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                     type="text"
                     class="input"
                     [(ngModel)]="devProject"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                     placeholder="ex.: Core API, Frontend"
                   />
                 </div>
@@ -250,7 +269,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                     type="text"
                     class="input"
                     [(ngModel)]="devBranch"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                     placeholder="ex.: feat/auth-otp"
                   />
                 </div>
@@ -262,7 +281,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                     type="text"
                     class="input"
                     [(ngModel)]="devEnvironment"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                     placeholder="ex.: local, staging, prod"
                   />
                 </div>
@@ -281,7 +300,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                     type="url"
                     class="input"
                     [(ngModel)]="devPrUrl"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                     placeholder="https://github.com/.../pull/..."
                   />
                 </div>
@@ -304,7 +323,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                   <select
                     class="select"
                     [(ngModel)]="qaType"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                   >
                     <option value="">Selecione o tipo...</option>
                     <option value="Teste">Teste</option>
@@ -319,7 +338,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                   <select
                     class="select"
                     [(ngModel)]="qaSeverity"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                   >
                     <option value="">Selecione a severidade...</option>
                     <option value="Baixa">Baixa</option>
@@ -336,7 +355,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                     type="text"
                     class="input"
                     [(ngModel)]="qaEnvironment"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                     placeholder="ex.: Staging v2.4, Produção, Chrome / Windows"
                   />
                 </div>
@@ -347,7 +366,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                   <textarea
                     class="textarea textarea-compact"
                     [(ngModel)]="qaSteps"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                     placeholder="1. Acessar a tela... 2. Clicar em... 3. Observar erro..."
                   ></textarea>
                 </div>
@@ -358,7 +377,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                   <textarea
                     class="textarea textarea-compact"
                     [(ngModel)]="qaExpected"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                     placeholder="O que deveria acontecer..."
                   ></textarea>
                 </div>
@@ -369,7 +388,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                   <textarea
                     class="textarea textarea-compact"
                     [(ngModel)]="qaActual"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                     placeholder="O que de fato ocorreu..."
                   ></textarea>
                 </div>
@@ -388,7 +407,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                     type="url"
                     class="input"
                     [(ngModel)]="qaEvidenceUrl"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                     placeholder="https://loom.com/... ou https://drive.google.com/..."
                   />
                 </div>
@@ -446,7 +465,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
               <textarea
                 class="textarea description-textarea"
                 [(ngModel)]="description"
-                (ngModelChange)="onFieldChanged()"
+                (ngModelChange)="markDirty()"
                 placeholder="Adicione detalhes ou notas em Markdown..."
               ></textarea>
             }
@@ -478,7 +497,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                     class="checklist-input"
                     [class.completed]="item.completed"
                     [(ngModel)]="item.text"
-                    (ngModelChange)="onFieldChanged()"
+                    (ngModelChange)="markDirty()"
                     placeholder="Item do checklist..."
                   />
                   <button
@@ -513,6 +532,32 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
             </div>
           </div>
         </div>
+
+        <!-- Discard Confirmation Modal -->
+        @if (showDiscardConfirm()) {
+          <div class="confirm-overlay" (click)="$event.stopPropagation()">
+            <div class="confirm-dialog" role="alertdialog" aria-modal="true">
+              <h4 class="confirm-title">Alterações não salvas</h4>
+              <p class="confirm-text">Existem alterações não salvas. Deseja descartá-las?</p>
+              <div class="confirm-actions">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  (click)="showDiscardConfirm.set(false)"
+                >
+                  Continuar editando
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-danger btn-sm"
+                  (click)="confirmDiscard()"
+                >
+                  Descartar
+                </button>
+              </div>
+            </div>
+          </div>
+        }
       </aside>
     </div>
   `,
@@ -529,6 +574,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
     }
 
     .details-sheet {
+      position: relative;
       width: 100%;
       max-width: 540px;
       height: 100%;
@@ -547,37 +593,89 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       align-items: center;
       justify-content: space-between;
       background: var(--surface-secondary);
+      gap: 1rem;
     }
 
-    .status-badge {
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex: 1;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-save {
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
-      font-size: 0.75rem;
-      font-weight: 500;
-      padding: 0.2rem 0.55rem;
-      border-radius: 9999px;
+      gap: 0.45rem;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      padding: 0.45rem 1rem;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all var(--transition-fast);
     }
 
-    .status-saving {
-      color: var(--text-muted);
+    .btn-save.clean {
       background: var(--surface);
+      border-color: var(--border);
+      color: var(--text-muted);
+      cursor: not-allowed;
+      opacity: 0.7;
     }
 
-    .status-saved {
-      color: var(--success);
+    .btn-save.dirty {
+      background: var(--primary);
+      color: #FFFFFF;
+      box-shadow: 0 2px 10px rgba(139, 92, 246, 0.4);
+    }
+    .btn-save.dirty:hover {
+      background: #7C3AED;
+    }
+
+    .btn-save.saving {
+      background: var(--surface);
+      border-color: var(--border);
+      color: var(--text-muted);
+      cursor: wait;
+    }
+
+    .btn-save.saved {
       background: var(--success-soft);
+      border-color: rgba(34, 197, 94, 0.4);
+      color: #4ADE80;
     }
 
-    .status-error {
-      color: var(--danger);
+    .btn-save.error {
       background: var(--danger-soft);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #F87171;
+    }
+
+    .error-text {
+      font-size: 0.75rem;
+      color: var(--danger);
+    }
+
+    .shortcut-hint kbd {
+      padding: 0.15rem 0.35rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-size: 0.6875rem;
+      color: var(--text-muted);
     }
 
     .spinner-mini {
-      width: 10px;
-      height: 10px;
-      border: 1.5px solid var(--text-muted);
+      width: 12px;
+      height: 12px;
+      border: 1.5px solid currentColor;
       border-top-color: transparent;
       border-radius: 50%;
       animation: spin 0.6s linear infinite;
@@ -593,6 +691,9 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       color: var(--text-muted);
       font-size: 1rem;
       transition: all var(--transition-fast);
+      background: transparent;
+      border: none;
+      cursor: pointer;
     }
 
     .btn-close:hover {
@@ -684,6 +785,9 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       color: var(--text-muted);
       text-align: center;
       transition: all var(--transition-fast);
+      background: transparent;
+      border: none;
+      cursor: pointer;
     }
 
     .pill-btn:hover {
@@ -734,6 +838,8 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       color: var(--text-muted);
       font-size: 0.75rem;
       cursor: pointer;
+      background: transparent;
+      border: none;
     }
     .btn-clear-date:hover {
       color: var(--text);
@@ -844,6 +950,8 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       font-size: 0.6875rem;
       cursor: pointer;
       padding: 0 0.15rem;
+      background: transparent;
+      border: none;
     }
     .tag-remove:hover {
       color: var(--danger);
@@ -904,6 +1012,9 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       color: var(--text-secondary);
       border-radius: var(--radius-xs);
       transition: all var(--transition-fast);
+      background: transparent;
+      border: none;
+      cursor: pointer;
     }
 
     .toolbar-btn:hover {
@@ -1009,6 +1120,8 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       cursor: pointer;
       border-radius: var(--radius-xs);
       transition: all var(--transition-fast);
+      background: transparent;
+      border: none;
     }
 
     .checklist-remove:hover {
@@ -1026,6 +1139,53 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
     .checklist-new-input {
       font-size: 0.8125rem;
       padding: 0.45rem 0.75rem;
+    }
+
+    /* Discard Confirmation Dialog */
+    .confirm-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(8, 8, 14, 0.75);
+      backdrop-filter: blur(2px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      z-index: 10;
+      animation: backdrop-in 100ms ease-out;
+    }
+
+    .confirm-dialog {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1.5rem;
+      max-width: 380px;
+      width: 100%;
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .confirm-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0;
+    }
+
+    .confirm-text {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin: 0;
+    }
+
+    .confirm-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
     }
 
     @keyframes spin {
@@ -1055,9 +1215,10 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
     }
   `]
 })
-export class TaskDetailsComponent implements OnInit, OnDestroy {
+export class TaskDetailsComponent implements OnInit {
   @Input({ required: true }) task!: Task;
-  @Output() taskUpdated = new EventEmitter<UpdateTaskDto>();
+  @Input() isNew: boolean = false;
+  @Output() taskSaved = new EventEmitter<UpdateTaskDto | CreateTaskDto>();
   @Output() close = new EventEmitter<void>();
 
   title: string = '';
@@ -1088,17 +1249,34 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
   qaEvidenceUrl: string = '';
 
   previewMode = signal<boolean>(false);
-  savingStatus = signal<'idle' | 'saving' | 'saved' | 'error'>('idle');
-
-  private changeSubject = new Subject<void>();
-  private sub?: Subscription;
+  savingStatus = signal<'clean' | 'dirty' | 'saving' | 'saved' | 'error'>('clean');
+  showDiscardConfirm = signal<boolean>(false);
 
   get completedChecklistCount(): number {
     return this.checklist.filter((c) => c.completed).length;
   }
 
+  @HostListener('window:keydown', ['$event'])
+  handleKeyboardShortcuts(event: KeyboardEvent) {
+    // Ctrl+S or Cmd+S to save
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      this.handleSave();
+      return;
+    }
+
+    // Escape to close with confirmation if dirty
+    if (event.key === 'Escape') {
+      if (this.showDiscardConfirm()) {
+        this.showDiscardConfirm.set(false);
+      } else {
+        this.requestClose();
+      }
+    }
+  }
+
   ngOnInit() {
-    this.title = this.task.title;
+    this.title = this.task.title || '';
     this.description = this.task.description || '';
     this.status = this.task.status || 'todo';
     this.priority = this.task.priority || 'normal';
@@ -1126,43 +1304,34 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
       this.qaEvidenceUrl = (this.task.metadata['evidence_url'] as string) || '';
     }
 
-    // Debounce auto-save at 600ms
-    this.sub = this.changeSubject.pipe(debounceTime(600)).subscribe(() => {
-      this.executeAutoSave();
-    });
+    // New task starts as dirty so user can immediately click "Criar tarefa" once title is entered
+    this.savingStatus.set(this.isNew ? 'dirty' : 'clean');
   }
 
-  ngOnDestroy() {
-    this.sub?.unsubscribe();
-  }
-
-  onFieldChanged() {
-    this.savingStatus.set('saving');
-    this.changeSubject.next();
+  markDirty() {
+    if (this.savingStatus() !== 'saving') {
+      this.savingStatus.set('dirty');
+    }
   }
 
   setWorkMode(mode: WorkMode) {
     this.workMode = mode;
-    this.onFieldChanged();
+    this.markDirty();
   }
 
   setStatus(newStatus: TaskStatus) {
     this.status = newStatus;
-    this.onFieldChanged();
+    this.markDirty();
   }
 
   setPriority(newPriority: TaskPriority) {
     this.priority = newPriority;
-    this.onFieldChanged();
-  }
-
-  onDueDateChanged() {
-    this.onFieldChanged();
+    this.markDirty();
   }
 
   clearDueDate() {
     this.dueDate = '';
-    this.onFieldChanged();
+    this.markDirty();
   }
 
   addTag() {
@@ -1170,28 +1339,28 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
     if (raw && !this.tags.includes(raw) && this.tags.length < 5) {
       this.tags.push(raw);
       this.newTagInput = '';
-      this.onFieldChanged();
+      this.markDirty();
     }
   }
 
   removeTag(index: number) {
     this.tags.splice(index, 1);
-    this.onFieldChanged();
+    this.markDirty();
   }
 
   insertBold() {
     this.description = (this.description || '') + '**texto em negrito**';
-    this.onFieldChanged();
+    this.markDirty();
   }
 
   insertList() {
     this.description = (this.description || '') + '\n- Item da lista';
-    this.onFieldChanged();
+    this.markDirty();
   }
 
   insertCode() {
     this.description = (this.description || '') + '`codigo`';
-    this.onFieldChanged();
+    this.markDirty();
   }
 
   addChecklistItem() {
@@ -1206,20 +1375,40 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
 
     this.checklist.push(newItem);
     this.newChecklistItemText = '';
-    this.onFieldChanged();
+    this.markDirty();
   }
 
   toggleChecklistItem(index: number) {
     this.checklist[index].completed = !this.checklist[index].completed;
-    this.onFieldChanged();
+    this.markDirty();
   }
 
   removeChecklistItem(index: number) {
     this.checklist.splice(index, 1);
-    this.onFieldChanged();
+    this.markDirty();
   }
 
-  private executeAutoSave() {
+  requestClose() {
+    if (this.savingStatus() === 'dirty') {
+      this.showDiscardConfirm.set(true);
+    } else {
+      this.close.emit();
+    }
+  }
+
+  confirmDiscard() {
+    this.showDiscardConfirm.set(false);
+    this.savingStatus.set('clean');
+    this.close.emit();
+  }
+
+  async handleSave() {
+    if (this.savingStatus() === 'saving') return;
+    const cleanTitle = this.title.trim();
+    if (!cleanTitle) return;
+
+    this.savingStatus.set('saving');
+
     const metadata: Record<string, unknown> = {
       ...(this.task.metadata || {}),
     };
@@ -1241,7 +1430,7 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
     }
 
     const payload: UpdateTaskDto = {
-      title: this.title.trim() || this.task.title,
+      title: cleanTitle,
       description: this.description,
       status: this.status,
       priority: this.priority,
@@ -1250,17 +1439,17 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
       due_at: this.dueDate ? new Date(this.dueDate + 'T23:59:59Z').toISOString() : null,
       tags: this.tags,
       checklist: this.checklist,
-      completed_at: this.status === 'done' ? new Date().toISOString() : null,
+      completed_at: this.status === 'done' ? (this.task.completed_at || new Date().toISOString()) : null,
     };
 
     try {
-      this.taskUpdated.emit(payload);
+      this.taskSaved.emit(payload);
       this.savingStatus.set('saved');
       setTimeout(() => {
         if (this.savingStatus() === 'saved') {
-          this.savingStatus.set('idle');
+          this.savingStatus.set('clean');
         }
-      }, 2500);
+      }, 2000);
     } catch {
       this.savingStatus.set('error');
     }

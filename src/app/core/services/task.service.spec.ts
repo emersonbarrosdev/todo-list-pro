@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { TaskService } from './task.service';
+import { ApiClientService } from './api-client.service';
 import { AuthService } from './auth.service';
 import { ClerkService } from '../auth/clerk.service';
 
@@ -11,7 +12,7 @@ describe('TaskService', () => {
   beforeEach(() => {
     localStorage.clear();
     TestBed.configureTestingModule({
-      providers: [TaskService, AuthService, ClerkService],
+      providers: [TaskService, ApiClientService, AuthService, ClerkService],
     });
     service = TestBed.inject(TaskService);
     authService = TestBed.inject(AuthService);
@@ -93,25 +94,34 @@ describe('TaskService', () => {
     await expect(service.updateTask(taskA.id, { title: 'Hack' })).rejects.toThrow();
   });
 
-  it('should filter tasks by work mode and priority', async () => {
-    await service.createTask({ title: 'Task Dev High', work_mode: 'dev', priority: 'high' });
-    await service.createTask({ title: 'Task QA Normal', work_mode: 'qa', priority: 'normal' });
-    await service.createTask({ title: 'Task General Low', work_mode: 'general', priority: 'low' });
+  it('should filter tasks purely client-side without calling API', async () => {
+    const t1 = await service.createTask({ title: 'Task Dev High', work_mode: 'dev', priority: 'high' });
+    const t2 = await service.createTask({ title: 'Task QA Normal', work_mode: 'qa', priority: 'normal' });
+    const t3 = await service.createTask({ title: 'Task General Low', work_mode: 'general', priority: 'low' });
 
-    const devTasks = await service.getTasks({ workMode: 'dev' });
+    const all = [t1, t2, t3];
+
+    // Client-side work mode filter
+    const devTasks = service.applyFilters(all, { workMode: 'dev' });
     expect(devTasks.length).toBe(1);
     expect(devTasks[0].title).toBe('Task Dev High');
 
-    const highPriorityTasks = await service.getTasks({ priority: 'high' });
-    expect(highPriorityTasks.length).toBe(1);
-    expect(highPriorityTasks[0].title).toBe('Task Dev High');
+    // Client-side priority filter
+    const highTasks = service.applyFilters(all, { priority: 'high' });
+    expect(highTasks.length).toBe(1);
+    expect(highTasks[0].title).toBe('Task Dev High');
+
+    // Client-side search
+    const searchTasks = service.applyFilters(all, { searchQuery: 'General' });
+    expect(searchTasks.length).toBe(1);
+    expect(searchTasks[0].title).toBe('Task General Low');
   });
 
-  it('should sort tasks correctly', async () => {
+  it('should sort tasks correctly purely client-side', async () => {
     const t1 = await service.createTask({ title: 'Primeira', priority: 'low' });
     const t2 = await service.createTask({ title: 'Segunda', priority: 'high' });
 
-    const sortedByPriority = await service.getTasks({ sortBy: 'priority' });
+    const sortedByPriority = service.applyFilters([t1, t2], { sortBy: 'priority' });
     expect(sortedByPriority[0].id).toBe(t2.id); // high before low
   });
 });

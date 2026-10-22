@@ -1,6 +1,6 @@
-import { Component, OnInit, OnDestroy, computed, inject, signal, HostListener, ViewChild } from '@angular/core';
+import { Component, OnInit, computed, inject, signal, HostListener, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule, ReactiveFormsModule, FormBuilder, Validators, FormGroup } from '@angular/forms';
+import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { HeaderComponent } from '../../shared/components/header/header.component';
 import { OnboardingComponent } from '../../shared/components/onboarding/onboarding.component';
 import { TaskDetailsComponent } from '../../shared/components/task-details/task-details.component';
@@ -21,52 +21,59 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
         [searchQuery]="searchQuery()"
         [workMode]="currentWorkMode()"
         (searchQueryChange)="onSearchChange($event)"
-        (newTaskClicked)="focusQuickAdd()"
+        (newTaskClicked)="openNewTaskModal()"
         (modeToggle)="cycleWorkMode()"
       ></app-header>
 
       <!-- Main Workspace -->
       <main class="main-content">
         <div class="app-container">
-          <!-- Top Bar: Summary & Quick Add -->
+          <!-- Top Bar: Summary, Refresh, and New Task Trigger -->
           <div class="workspace-header">
-            <div class="summary-meta">
-              <span class="summary-count">
-                <strong>{{ activeCount() }}</strong> {{ activeCount() === 1 ? 'tarefa ativa' : 'tarefas ativas' }}
-              </span>
-              <span class="summary-divider">·</span>
-              <span class="summary-done">{{ doneCount() }} concluídas</span>
-            </div>
+            <div class="workspace-top-bar">
+              <div class="summary-meta">
+                <span class="summary-count">
+                  <strong>{{ activeCount() }}</strong> {{ activeCount() === 1 ? 'tarefa ativa' : 'tarefas ativas' }}
+                </span>
+                <span class="summary-divider">·</span>
+                <span class="summary-done">{{ doneCount() }} concluídas</span>
+              </div>
 
-            <!-- Quick Add Bar -->
-            <form [formGroup]="quickAddForm" (ngSubmit)="handleCreateTask()" class="quick-add-form">
-              <div class="quick-add-input-wrapper">
-                <input
-                  #quickAddInput
-                  id="input-quick-add"
-                  type="text"
-                  class="input quick-add-input"
-                  placeholder="Criar nova tarefa... (Pressione Enter para salvar)"
-                  maxlength="160"
-                  formControlName="title"
-                  autocomplete="off"
-                />
+              <div class="top-bar-actions">
+                <!-- Discrete Refresh Button -->
                 <button
-                  id="btn-add-task"
-                  type="submit"
+                  id="btn-refresh-tasks"
+                  type="button"
+                  class="btn-refresh"
+                  (click)="loadTasks()"
+                  [disabled]="isLoading()"
+                  title="Atualizar lista de tarefas do servidor"
+                >
+                  <svg [class.spin]="isLoading()" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
+                  <span>Atualizar</span>
+                </button>
+
+                <!-- New Task Trigger Button -->
+                <button
+                  type="button"
                   class="btn btn-primary btn-sm"
-                  [disabled]="quickAddForm.invalid || isSubmitting()"
+                  (click)="openNewTaskModal()"
+                  title="Criar nova tarefa localmente (N)"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="12" y1="5" x2="12" y2="19"></line>
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                   </svg>
-                  <span>Adicionar</span>
+                  <span>Nova tarefa</span>
                 </button>
               </div>
-            </form>
+            </div>
 
-            <!-- Compact Filter & Sorting Bar -->
+            <!-- Compact Filter & Sorting Bar (100% Client-Side In-Memory) -->
             <div class="filters-bar">
               <!-- Quick Status Segmented Pills -->
               <div class="status-pills" role="tablist">
@@ -175,7 +182,7 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                   </div>
                 </div>
               </div>
-            } @else if (tasks().length === 0) {
+            } @else if (filteredTasks().length === 0) {
               <!-- Empty State -->
               <div class="empty-state">
                 <div class="empty-icon" aria-hidden="true">
@@ -188,10 +195,12 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                   {{ searchQuery() ? 'Nenhuma tarefa encontrada' : 'Tudo organizado!' }}
                 </h3>
                 <p class="empty-desc">
-                  {{ searchQuery() ? 'Nenhum resultado para "' + searchQuery() + '".' : 'Crie sua primeira tarefa usando o campo acima ou pelos atalhos.' }}
+                  {{ searchQuery() ? 'Nenhum resultado para "' + searchQuery() + '".' : 'Crie sua primeira tarefa usando o botão acima ou pressionando N.' }}
                 </p>
                 <div class="empty-shortcuts">
-                  <span class="shortcut-chip"><kbd>N</kbd> Nova tarefa</span>
+                  <button type="button" class="btn btn-secondary btn-sm" (click)="openNewTaskModal()">
+                    + Criar primeira tarefa
+                  </button>
                   <span class="shortcut-chip"><kbd>Ctrl K</kbd> Buscar</span>
                   <span class="shortcut-chip"><kbd>Esc</kbd> Fechar painel</span>
                 </div>
@@ -199,7 +208,7 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
             } @else {
               <!-- Dense Task Items List -->
               <ul class="task-list" role="list">
-                @for (task of tasks(); track task.id) {
+                @for (task of filteredTasks(); track task.id) {
                   <li
                     class="task-row"
                     [class.completed]="task.status === 'done'"
@@ -210,15 +219,16 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                     tabindex="0"
                     [attr.aria-label]="'Abrir detalhes de: ' + task.title"
                   >
-                    <!-- Checkbox -->
-                    <input
-                      type="checkbox"
-                      class="checkbox-custom"
-                      [checked]="task.status === 'done'"
-                      (click)="$event.stopPropagation()"
-                      (change)="handleToggleComplete(task, $event)"
-                      [attr.aria-label]="'Marcar ' + task.title + ' como concluída'"
-                    />
+                    <!-- Status Indicator Icon -->
+                    <div class="status-dot-wrapper">
+                      @if (task.status === 'done') {
+                        <span class="status-indicator-icon done">✓</span>
+                      } @else if (task.status === 'doing') {
+                        <span class="status-indicator-icon doing">●</span>
+                      } @else {
+                        <span class="status-indicator-icon todo">○</span>
+                      }
+                    </div>
 
                     <!-- Content -->
                     <div class="task-info">
@@ -276,12 +286,13 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
         <app-onboarding (completed)="handleOnboardingComplete($event)"></app-onboarding>
       }
 
-      <!-- Lateral Details Sheet -->
+      <!-- Lateral Details Sheet for Editing Existing or New Task -->
       @if (selectedTask(); as currentSelected) {
         <app-task-details
           [task]="currentSelected"
-          (taskUpdated)="handleTaskUpdated($event)"
-          (close)="selectedTask.set(null)"
+          [isNew]="isNewTask()"
+          (taskSaved)="handleTaskSaved($event)"
+          (close)="closeDetails()"
         ></app-task-details>
       }
     </div>
@@ -306,6 +317,13 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       gap: 1rem;
     }
 
+    .workspace-top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
     .summary-meta {
       display: flex;
       align-items: center;
@@ -326,32 +344,40 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       color: var(--text-muted);
     }
 
-    .quick-add-form {
-      width: 100%;
-    }
-
-    .quick-add-input-wrapper {
+    .top-bar-actions {
       display: flex;
       align-items: center;
+      gap: 0.65rem;
+    }
+
+    .btn-refresh {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.4rem 0.65rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-secondary);
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 0.35rem 0.5rem 0.35rem 1rem;
-      box-shadow: var(--shadow-sm);
-      transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+      border-radius: var(--radius-xs);
+      cursor: pointer;
+      transition: all var(--transition-fast);
     }
 
-    .quick-add-input-wrapper:focus-within {
-      border-color: var(--border-focus);
-      box-shadow: 0 0 0 3px var(--primary-soft);
+    .btn-refresh:hover:not(:disabled) {
+      color: var(--text);
+      background: var(--surface-hover);
+      border-color: var(--text-muted);
     }
 
-    .quick-add-input {
-      border: none !important;
-      background: transparent !important;
-      box-shadow: none !important;
-      padding: 0.5rem 0 !important;
-      font-size: 0.9375rem;
+    .btn-refresh:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .spin {
+      animation: spin 0.8s linear infinite;
     }
 
     .filters-bar {
@@ -380,6 +406,9 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       color: var(--text-secondary);
       border-radius: var(--radius-xs);
       transition: all var(--transition-fast);
+      background: transparent;
+      border: none;
+      cursor: pointer;
     }
 
     .filter-pill:hover {
@@ -429,6 +458,8 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       display: flex;
       flex-direction: column;
       gap: 2px;
+      margin: 0;
+      padding: 0;
     }
 
     .task-row {
@@ -443,6 +474,30 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
 
     .task-row:hover {
       background: var(--surface-hover);
+    }
+
+    .status-dot-wrapper {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.875rem;
+      flex-shrink: 0;
+    }
+
+    .status-indicator-icon.done {
+      color: #4ADE80;
+      font-weight: 700;
+    }
+
+    .status-indicator-icon.doing {
+      color: #60A5FA;
+      font-size: 0.75rem;
+    }
+
+    .status-indicator-icon.todo {
+      color: var(--text-muted);
     }
 
     .task-row.completed .task-title {
@@ -500,6 +555,9 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       border-radius: var(--radius-xs);
       color: var(--text-muted);
       transition: all var(--transition-fast);
+      background: transparent;
+      border: none;
+      cursor: pointer;
     }
 
     .btn-delete:hover {
@@ -619,22 +677,22 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       width: 25%;
       border-radius: var(--radius-xs);
     }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   `]
 })
-export class TasksComponent implements OnInit, OnDestroy {
+export class TasksComponent implements OnInit {
   @ViewChild(HeaderComponent) headerComp?: HeaderComponent;
 
-  private fb = inject(FormBuilder);
   private taskService = inject(TaskService);
   private auth = inject(AuthService);
   private profileService = inject(ProfileService);
   private toast = inject(ToastService);
 
-  private pendingDeletions = new Map<string, any>();
-
   tasks = signal<Task[]>([]);
   isLoading = signal<boolean>(true);
-  isSubmitting = signal<boolean>(false);
   showOnboarding = signal<boolean>(false);
   currentWorkMode = signal<WorkMode>('general');
   searchQuery = signal<string>('');
@@ -645,14 +703,22 @@ export class TasksComponent implements OnInit, OnDestroy {
   sortBy = signal<'recent' | 'oldest' | 'due_date' | 'priority'>('recent');
 
   selectedTask = signal<Task | null>(null);
+  isNewTask = signal<boolean>(false);
+
+  // Pure client-side computed filtering & sorting over in-memory tasks
+  filteredTasks = computed(() => {
+    return this.taskService.applyFilters(this.tasks(), {
+      status: this.statusFilter(),
+      priority: this.priorityFilter(),
+      workMode: this.modeFilter(),
+      searchQuery: this.searchQuery(),
+      sortBy: this.sortBy(),
+    });
+  });
 
   totalCount = computed(() => this.tasks().length);
   activeCount = computed(() => this.tasks().filter((t) => t.status !== 'done').length);
   doneCount = computed(() => this.tasks().filter((t) => t.status === 'done').length);
-
-  quickAddForm: FormGroup = this.fb.group({
-    title: ['', [Validators.required, Validators.maxLength(160)]],
-  });
 
   @HostListener('window:keydown', ['$event'])
   handleGlobalShortcuts(event: KeyboardEvent) {
@@ -671,53 +737,32 @@ export class TasksComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Escape: Close lateral details panel or blur input
-    if (event.key === 'Escape') {
-      if (this.selectedTask()) {
-        event.preventDefault();
-        this.selectedTask.set(null);
-      } else if (isTyping) {
-        (target as HTMLElement).blur();
-      }
-      return;
-    }
-
-    // N: New task (only if not typing)
+    // N: New task (only if not typing in form)
     if (!isTyping && (event.key === 'n' || event.key === 'N') && !event.ctrlKey && !event.metaKey && !event.altKey) {
       event.preventDefault();
-      this.focusQuickAdd();
+      this.openNewTaskModal();
       return;
     }
   }
 
   async ngOnInit() {
+    // 1 single initial profile check + 1 single initial tasks load
     await this.checkUserProfile();
     await this.loadTasks();
   }
 
-  ngOnDestroy() {
-    // Flush any pending deletions safely
-    for (const [id, timer] of this.pendingDeletions.entries()) {
-      clearTimeout(timer);
-      this.taskService.deleteTask(id).catch(() => {});
-    }
-    this.pendingDeletions.clear();
-  }
-
   async checkUserProfile() {
-    const user = this.auth.currentUser();
-    if (user) {
-      try {
-        const profile = await this.profileService.getProfile(user.id);
-        const onboardingDone = localStorage.getItem(`onboarding_done_${user.id}`);
-        if (!onboardingDone && (!profile || !profile.work_mode)) {
-          this.showOnboarding.set(true);
-        } else if (profile?.work_mode) {
-          this.currentWorkMode.set(profile.work_mode);
-        }
-      } catch {
-        // fallback
+    try {
+      const profile = await this.profileService.getProfile();
+      const user = this.auth.currentUser();
+      const onboardingDone = user ? localStorage.getItem(`onboarding_done_${user.id}`) : 'true';
+      if (!onboardingDone && (!profile || !profile.work_mode)) {
+        this.showOnboarding.set(true);
+      } else if (profile?.work_mode) {
+        this.currentWorkMode.set(profile.work_mode);
       }
+    } catch {
+      // Local fallback
     }
   }
 
@@ -727,37 +772,36 @@ export class TasksComponent implements OnInit, OnDestroy {
     const user = this.auth.currentUser();
     if (user) {
       localStorage.setItem(`onboarding_done_${user.id}`, 'true');
-      try {
-        await this.profileService.setWorkMode(user.id, mode);
-        this.toast.success(`Modo ${mode.toUpperCase()} ativado com sucesso!`);
-      } catch {
-        // local fallback
-      }
+    }
+    try {
+      await this.profileService.setWorkMode(mode);
+      this.toast.success(`Modo ${mode.toUpperCase()} ativado com sucesso!`);
+    } catch {
+      // ignore
     }
   }
 
-  cycleWorkMode() {
+  async cycleWorkMode() {
     const modes: WorkMode[] = ['general', 'dev', 'qa'];
     const nextIdx = (modes.indexOf(this.currentWorkMode()) + 1) % modes.length;
     const nextMode = modes[nextIdx];
     this.currentWorkMode.set(nextMode);
-    const user = this.auth.currentUser();
-    if (user) {
-      this.profileService.setWorkMode(user.id, nextMode);
+    try {
+      await this.profileService.setWorkMode(nextMode);
+    } catch {
+      // ignore
     }
     this.toast.info(`Alternado para o modo ${nextMode.toUpperCase()}`);
   }
 
+  /**
+   * Loads tasks from the D1 server.
+   * Called only on initial startup or when user clicks 'Atualizar'.
+   */
   async loadTasks() {
     this.isLoading.set(true);
     try {
-      const data = await this.taskService.getTasks({
-        searchQuery: this.searchQuery(),
-        status: this.statusFilter(),
-        priority: this.priorityFilter(),
-        workMode: this.modeFilter(),
-        sortBy: this.sortBy(),
-      });
+      const data = await this.taskService.getTasks();
       this.tasks.set(data);
     } catch (err: any) {
       this.toast.error(err.message || 'Erro ao carregar tarefas.');
@@ -766,51 +810,39 @@ export class TasksComponent implements OnInit, OnDestroy {
     }
   }
 
+  // Pure in-memory signal updates without server re-fetching
   setStatusFilter(status: TaskStatus | 'all') {
     this.statusFilter.set(status);
-    this.loadTasks();
   }
 
   onPriorityFilterChange(event: Event) {
     const select = event.target as HTMLSelectElement;
     this.priorityFilter.set(select.value as TaskPriority | 'all');
-    this.loadTasks();
   }
 
   onModeFilterChange(event: Event) {
     const select = event.target as HTMLSelectElement;
     this.modeFilter.set(select.value as WorkMode | 'all');
-    this.loadTasks();
   }
 
   onSortByChange(event: Event) {
     const select = event.target as HTMLSelectElement;
     this.sortBy.set(select.value as any);
-    this.loadTasks();
   }
 
   onSearchChange(query: string) {
     this.searchQuery.set(query);
-    this.loadTasks();
   }
 
-  focusQuickAdd() {
-    const el = document.getElementById('input-quick-add');
-    if (el) el.focus();
-  }
-
-  async handleCreateTask() {
-    if (this.quickAddForm.invalid) return;
-
-    const title = this.quickAddForm.value.title.trim();
-    this.isSubmitting.set(true);
-
-    // Optimistic UI representation
-    const tempId = 'temp_' + Date.now();
-    const optimisticTask: Task = {
-      id: tempId,
+  /**
+   * Opens local empty form for a new task.
+   * Zero network calls, zero writes to D1 until user explicitly saves.
+   */
+  openNewTaskModal() {
+    const blankTask: Task = {
+      id: '',
       user_id: this.auth.currentUser()?.id || 'guest',
-      title,
+      title: '',
       description: '',
       status: 'todo',
       priority: 'normal',
@@ -823,123 +855,71 @@ export class TasksComponent implements OnInit, OnDestroy {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-
-    // Immediately show in UI
-    this.tasks.update((curr) => [optimisticTask, ...curr]);
-    this.quickAddForm.reset();
-
-    try {
-      const persisted = await this.taskService.createTask({
-        title,
-        work_mode: this.currentWorkMode(),
-      });
-
-      // Replace temp task with real persisted task
-      this.tasks.update((curr) => curr.map((t) => (t.id === tempId ? persisted : t)));
-    } catch (err: any) {
-      // Revert optimistic addition if failed
-      this.tasks.update((curr) => curr.filter((t) => t.id !== tempId));
-      this.toast.error(err.message || 'Falha ao salvar tarefa. Estado revertido.');
-    } finally {
-      this.isSubmitting.set(false);
-    }
-  }
-
-  async handleToggleComplete(task: Task, event: Event) {
-    const checkbox = event.target as HTMLInputElement;
-    const isNowDone = checkbox.checked;
-    const newStatus: TaskStatus = isNowDone ? 'done' : 'todo';
-    const originalStatus = task.status;
-
-    // Optimistic UI update
-    this.tasks.update((curr) =>
-      curr.map((t) =>
-        t.id === task.id ? { ...t, status: newStatus, completed_at: isNowDone ? new Date().toISOString() : null } : t
-      )
-    );
-
-    try {
-      await this.taskService.updateTask(task.id, {
-        status: newStatus,
-      });
-    } catch (err: any) {
-      // Revert on error
-      this.tasks.update((curr) =>
-        curr.map((t) => (t.id === task.id ? { ...t, status: originalStatus } : t))
-      );
-      checkbox.checked = !isNowDone;
-      this.toast.error(err.message || 'Erro ao atualizar tarefa. Estado restaurado.');
-    }
-  }
-
-  async handleDeleteTask(task: Task) {
-    if (this.selectedTask()?.id === task.id) {
-      this.selectedTask.set(null);
-    }
-
-    const previousIndex = this.tasks().findIndex((t) => t.id === task.id);
-    this.tasks.update((curr) => curr.filter((t) => t.id !== task.id));
-
-    let undone = false;
-    const timer = setTimeout(async () => {
-      this.pendingDeletions.delete(task.id);
-      if (!undone) {
-        try {
-          await this.taskService.deleteTask(task.id);
-        } catch {
-          this.tasks.update((curr) => {
-            const next = [...curr];
-            if (previousIndex >= 0) {
-              next.splice(previousIndex, 0, task);
-            } else {
-              next.push(task);
-            }
-            return next;
-          });
-          this.toast.error('Erro ao deletar tarefa.');
-        }
-      }
-    }, 5000);
-
-    this.pendingDeletions.set(task.id, timer);
-
-    this.toast.show({
-      message: `Tarefa "${task.title}" removida.`,
-      type: 'info',
-      duration: 5000,
-      actionLabel: 'Desfazer',
-      onAction: () => {
-        undone = true;
-        clearTimeout(timer);
-        this.pendingDeletions.delete(task.id);
-        this.tasks.update((curr) => {
-          const next = [...curr];
-          if (previousIndex >= 0) {
-            next.splice(previousIndex, 0, task);
-          } else {
-            next.push(task);
-          }
-          return next;
-        });
-        this.toast.info('Remoção desfeita com sucesso.');
-      },
-    });
+    this.isNewTask.set(true);
+    this.selectedTask.set(blankTask);
   }
 
   selectTask(task: Task) {
+    this.isNewTask.set(false);
     this.selectedTask.set(task);
   }
 
-  async handleTaskUpdated(dto: UpdateTaskDto) {
-    const current = this.selectedTask();
-    if (!current) return;
+  closeDetails() {
+    this.selectedTask.set(null);
+    this.isNewTask.set(false);
+  }
+
+  /**
+   * Handles explicit save from TaskDetailsComponent.
+   * If new task: executes POST /api/tasks once.
+   * If existing task: executes PUT /api/tasks/:id once.
+   */
+  async handleTaskSaved(payload: UpdateTaskDto | CreateTaskDto) {
+    if (this.isNewTask()) {
+      try {
+        const created = await this.taskService.createTask(payload as CreateTaskDto);
+        this.tasks.update((curr) => [created, ...curr]);
+        this.selectedTask.set(null);
+        this.isNewTask.set(false);
+        this.toast.success('Tarefa criada com sucesso!');
+      } catch (err: any) {
+        this.toast.error(err.message || 'Erro ao criar tarefa.');
+        throw err;
+      }
+    } else {
+      const current = this.selectedTask();
+      if (!current?.id) return;
+      try {
+        const updated = await this.taskService.updateTask(current.id, payload as UpdateTaskDto);
+        this.tasks.update((curr) => curr.map((t) => (t.id === updated.id ? updated : t)));
+        this.selectedTask.set(updated);
+        this.toast.success('Alterações salvas no servidor.');
+      } catch (err: any) {
+        this.toast.error(err.message || 'Erro ao salvar alterações.');
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Deletes task upon explicit user confirmation.
+   * Executes exactly 1 DELETE request.
+   */
+  async handleDeleteTask(task: Task) {
+    if (!confirm(`Tem certeza que deseja excluir "${task.title}" permanentemente?`)) {
+      return;
+    }
+
+    if (this.selectedTask()?.id === task.id) {
+      this.closeDetails();
+    }
 
     try {
-      const updated = await this.taskService.updateTask(current.id, dto);
-      this.tasks.update((curr) => curr.map((t) => (t.id === updated.id ? updated : t)));
-      this.selectedTask.set(updated);
+      await this.taskService.deleteTask(task.id);
+      this.tasks.update((curr) => curr.filter((t) => t.id !== task.id));
+      this.toast.success('Tarefa removida com sucesso.');
     } catch (err: any) {
-      this.toast.error(err.message || 'Erro ao atualizar tarefa.');
+      this.toast.error(err.message || 'Erro ao excluir tarefa.');
     }
   }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { TaskDetailsComponent } from './task-details.component';
 import { Task } from '../../../core/models/task.model';
@@ -31,58 +31,116 @@ describe('TaskDetailsComponent', () => {
 
     fixture = TestBed.createComponent(TaskDetailsComponent);
     component = fixture.componentInstance;
-    component.task = mockTask;
+    component.task = { ...mockTask };
     fixture.detectChanges();
   });
 
-  it('should create and load initial task properties', () => {
+  it('should start with clean state and load initial properties', () => {
     expect(component).toBeTruthy();
+    expect(component.savingStatus()).toBe('clean');
     expect(component.title).toBe('Tarefa detalhada');
     expect(component.status).toBe('todo');
     expect(component.priority).toBe('normal');
     expect(component.workMode).toBe('general');
   });
 
-  it('should toggle and support developer work mode fields', () => {
+  it('should transition to dirty state when editing fields without saving automatically', () => {
+    const saveSpy = vi.spyOn(component.taskSaved, 'emit');
+
+    // Edit 20 different fields: zero API writes, zero emits!
+    component.title = 'Novo título';
+    component.markDirty();
+
+    component.description = 'Nova descrição completa';
+    component.markDirty();
+
+    component.setStatus('doing');
+    component.setPriority('high');
     component.setWorkMode('dev');
-    expect(component.workMode).toBe('dev');
 
     component.devType = 'Bug';
-    component.devBranch = 'fix/login-issue';
-    component.devProject = 'Auth Service';
-    expect(component.devType).toBe('Bug');
-    expect(component.devBranch).toBe('fix/login-issue');
-  });
+    component.markDirty();
 
-  it('should toggle and support QA work mode fields', () => {
-    component.setWorkMode('qa');
-    expect(component.workMode).toBe('qa');
+    component.devBranch = 'fix/auth';
+    component.markDirty();
 
-    component.qaType = 'Regressão';
-    component.qaSeverity = 'Crítica';
-    component.qaSteps = '1. Clicar em checkout\n2. Erro 500';
-    component.qaExpected = 'Compra confirmada';
-    component.qaActual = 'Erro 500';
-
-    expect(component.qaType).toBe('Regressão');
-    expect(component.qaSeverity).toBe('Crítica');
-  });
-
-  it('should add and remove tags', () => {
-    component.newTagInput = 'backend';
-    component.addTag();
-    expect(component.tags).toContain('backend');
-
-    component.removeTag(component.tags.indexOf('backend'));
-    expect(component.tags).not.toContain('backend');
-  });
-
-  it('should add and toggle checklist item', () => {
-    component.newChecklistItemText = 'Novo subitem';
+    component.toggleChecklistItem(0);
+    component.newChecklistItemText = 'Item extra';
     component.addChecklistItem();
 
-    expect(component.checklist.length).toBe(2);
-    component.toggleChecklistItem(0);
-    expect(component.checklist[0].completed).toBe(true);
+    component.newTagInput = 'security';
+    component.addTag();
+
+    expect(component.savingStatus()).toBe('dirty');
+    expect(saveSpy).not.toHaveBeenCalled(); // 0 emits during editing!
+  });
+
+  it('should emit taskSaved exactly once when user clicks Salvar', () => {
+    const saveSpy = vi.spyOn(component.taskSaved, 'emit');
+
+    component.title = 'Título atualizado';
+    component.markDirty();
+    component.setStatus('done');
+
+    component.handleSave();
+
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+    expect(component.savingStatus()).toBe('saved');
+  });
+
+  it('should prevent double saving on rapid clicks (double-click protection)', () => {
+    const saveSpy = vi.spyOn(component.taskSaved, 'emit');
+
+    component.title = 'Evitar duplo clique';
+    component.markDirty();
+
+    // First save: sets to saving
+    component.savingStatus.set('saving');
+    // Rapid second click while saving: ignored
+    component.handleSave();
+
+    expect(saveSpy).not.toHaveBeenCalled();
+  });
+
+  it('should prompt confirmation when trying to close with unsaved changes', () => {
+    const closeSpy = vi.spyOn(component.close, 'emit');
+
+    component.title = 'Mudança não salva';
+    component.markDirty();
+
+    // User attempts to close
+    component.requestClose();
+
+    expect(component.showDiscardConfirm()).toBe(true);
+    expect(closeSpy).not.toHaveBeenCalled();
+
+    // User chooses to discard
+    component.confirmDiscard();
+    expect(component.showDiscardConfirm()).toBe(false);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should close immediately without confirmation when state is clean', () => {
+    const closeSpy = vi.spyOn(component.close, 'emit');
+    expect(component.savingStatus()).toBe('clean');
+
+    component.requestClose();
+
+    expect(component.showDiscardConfirm()).toBe(false);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should trigger save on Ctrl+S / Cmd+S', () => {
+    const saveSpy = vi.spyOn(component.taskSaved, 'emit');
+    component.title = 'Salvar com atalho';
+    component.markDirty();
+
+    const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true });
+    vi.spyOn(event, 'preventDefault');
+
+    component.handleKeyboardShortcuts(event);
+
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+    expect(event.preventDefault).toHaveBeenCalled();
   });
 });
