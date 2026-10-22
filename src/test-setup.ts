@@ -10,3 +10,9 @@ getTestBed().initTestEnvironment(
   BrowserDynamicTestingModule,
   platformBrowserDynamicTesting(),
 );
+
+(window as unknown as { __TODO_PRO_ENV__: Record<string, string> }).__TODO_PRO_ENV__ = {
+  SUPABASE_URL: 'https://placeholder-todo-pro.supabase.co',
+  SUPABASE_PUBLISHABLE_KEY: 'placeholder-anon-key',
+};
+

@@ -20,7 +20,7 @@ const runtimeEnv = (typeof window !== 'undefined' && window.__TODO_PRO_ENV__) ||
 
 export const environment: AppEnvironment = {
   production: true,
-  supabaseUrl: runtimeEnv.SUPABASE_URL || 'https://placeholder-todo-pro.supabase.co',
-  supabaseKey: runtimeEnv.SUPABASE_PUBLISHABLE_KEY || 'placeholder-anon-key',
+  supabaseUrl: runtimeEnv.SUPABASE_URL || 'https://vgdiazxzkxjdtnwxatpq.supabase.co',
+  supabaseKey: runtimeEnv.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_wckQLn3YtX20gy2syTRXnw_eeGsETvd',
   turnstileSiteKey: runtimeEnv.TURNSTILE_SITE_KEY || '',
 };
