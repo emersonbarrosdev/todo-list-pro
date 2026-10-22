@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ProfileService } from './profile.service';
-import { SupabaseService } from './supabase.service';
+import { AuthService } from './auth.service';
+import { ClerkService } from '../auth/clerk.service';
 
 describe('ProfileService', () => {
   let service: ProfileService;
@@ -9,7 +10,7 @@ describe('ProfileService', () => {
   beforeEach(() => {
     localStorage.clear();
     TestBed.configureTestingModule({
-      providers: [ProfileService, SupabaseService],
+      providers: [ProfileService, AuthService, ClerkService],
     });
     service = TestBed.inject(ProfileService);
   });
