@@ -62,7 +62,7 @@ interface JWTPayload {
   [key: string]: unknown;
 }
 
-// Helper: JSON response with CORS
+// Helper: JSON response with CORS and security headers
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -71,6 +71,10 @@ function json(data: unknown, status = 200): Response {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
     },
   });
 }
