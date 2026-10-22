@@ -1,9 +1,19 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "todo-list-pro",
+  "name": "todo-pro",
+  "main": "./worker/index.ts",
   "compatibility_date": "2026-02-01",
   "assets": {
     "directory": "./dist/todo-list/browser",
-    "not_found_handling": "single-page-application"
-  }
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "todo-pro-db",
+      "database_id": "todo-pro-db"
+    }
+  ]
 }
