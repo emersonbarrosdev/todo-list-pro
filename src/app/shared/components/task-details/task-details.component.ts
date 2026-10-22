@@ -2,7 +2,7 @@ import { Component, EventEmitter, Input, OnDestroy, OnInit, Output, signal } fro
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject, Subscription, debounceTime } from 'rxjs';
-import { Task, ChecklistItem, UpdateTaskDto } from '../../../core/models/task.model';
+import { Task, ChecklistItem, UpdateTaskDto, TaskStatus, TaskPriority } from '../../../core/models/task.model';
 import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
 
 @Component({
@@ -54,6 +54,124 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
               placeholder="Título da tarefa..."
               maxlength="160"
             />
+          </div>
+
+          <!-- Essential Properties Grid -->
+          <div class="properties-grid">
+            <!-- Status Pill Selector -->
+            <div class="property-item">
+              <span class="property-label">Status</span>
+              <div class="property-pills">
+                <button
+                  type="button"
+                  class="pill-btn"
+                  [class.active]="status === 'todo'"
+                  (click)="setStatus('todo')"
+                >
+                  A fazer
+                </button>
+                <button
+                  type="button"
+                  class="pill-btn pill-doing"
+                  [class.active]="status === 'doing'"
+                  (click)="setStatus('doing')"
+                >
+                  Em andamento
+                </button>
+                <button
+                  type="button"
+                  class="pill-btn pill-done"
+                  [class.active]="status === 'done'"
+                  (click)="setStatus('done')"
+                >
+                  Concluída
+                </button>
+              </div>
+            </div>
+
+            <!-- Priority Selector -->
+            <div class="property-item">
+              <span class="property-label">Prioridade</span>
+              <div class="property-pills">
+                <button
+                  type="button"
+                  class="pill-btn pill-low"
+                  [class.active]="priority === 'low'"
+                  (click)="setPriority('low')"
+                >
+                  Baixa
+                </button>
+                <button
+                  type="button"
+                  class="pill-btn pill-normal"
+                  [class.active]="priority === 'normal'"
+                  (click)="setPriority('normal')"
+                >
+                  Normal
+                </button>
+                <button
+                  type="button"
+                  class="pill-btn pill-high"
+                  [class.active]="priority === 'high'"
+                  (click)="setPriority('high')"
+                >
+                  Alta
+                </button>
+              </div>
+            </div>
+
+            <!-- Due Date -->
+            <div class="property-item">
+              <span class="property-label">Prazo</span>
+              <div class="date-input-wrapper">
+                <input
+                  type="date"
+                  class="input date-picker"
+                  [(ngModel)]="dueDate"
+                  (ngModelChange)="onDueDateChanged()"
+                />
+                @if (dueDate) {
+                  <button
+                    type="button"
+                    class="btn-clear-date"
+                    (click)="clearDueDate()"
+                    title="Remover prazo"
+                  >
+                    ✕
+                  </button>
+                }
+              </div>
+            </div>
+
+            <!-- Tags -->
+            <div class="property-item tags-full-width">
+              <span class="property-label">Tags (máx. 5)</span>
+              <div class="tags-wrapper">
+                @for (tag of tags; track tag; let idx = $index) {
+                  <span class="tag-chip">
+                    #{{ tag }}
+                    <button
+                      type="button"
+                      class="tag-remove"
+                      (click)="removeTag(idx)"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                }
+                @if (tags.length < 5) {
+                  <input
+                    type="text"
+                    class="tag-input"
+                    [(ngModel)]="newTagInput"
+                    (keydown.enter)="addTag()"
+                    (keydown.comma)="addTag()"
+                    placeholder="+ Adicionar tag..."
+                    maxlength="20"
+                  />
+                }
+              </div>
+            </div>
           </div>
 
           <!-- Description Block with Markdown Toolbar -->
@@ -190,7 +308,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
 
     .details-sheet {
       width: 100%;
-      max-width: 520px;
+      max-width: 540px;
       height: 100%;
       background: var(--surface);
       border-left: 1px solid var(--border);
@@ -266,7 +384,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       padding: 1.5rem 1.25rem;
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
+      gap: 1.25rem;
     }
 
     .field-block {
@@ -299,6 +417,152 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
 
     .title-input:focus {
       border-bottom-color: var(--primary);
+    }
+
+    /* Properties Grid */
+    .properties-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.85rem;
+      background: var(--surface-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1rem;
+    }
+
+    .property-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .property-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .property-pills {
+      display: flex;
+      gap: 0.3rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xs);
+      padding: 0.2rem;
+    }
+
+    .pill-btn {
+      flex: 1;
+      padding: 0.3rem 0.4rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      border-radius: var(--radius-xs);
+      color: var(--text-muted);
+      text-align: center;
+      transition: all var(--transition-fast);
+    }
+
+    .pill-btn:hover {
+      color: var(--text);
+    }
+
+    .pill-btn.active {
+      background: var(--surface-hover);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .pill-doing.active {
+      background: rgba(59, 130, 246, 0.16);
+      color: #60A5FA;
+    }
+
+    .pill-done.active {
+      background: var(--success-soft);
+      color: #4ADE80;
+    }
+
+    .pill-high.active {
+      background: var(--danger-soft);
+      color: #F87171;
+    }
+
+    .pill-normal.active {
+      background: var(--primary-soft);
+      color: var(--accent);
+    }
+
+    .date-input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .date-picker {
+      padding: 0.35rem 0.6rem;
+      font-size: 0.8125rem;
+      color-scheme: dark;
+    }
+
+    .btn-clear-date {
+      position: absolute;
+      right: 0.5rem;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .btn-clear-date:hover {
+      color: var(--text);
+    }
+
+    .tags-full-width {
+      grid-column: span 2;
+    }
+
+    .tags-wrapper {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xs);
+      padding: 0.35rem 0.5rem;
+      min-height: 38px;
+    }
+
+    .tag-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.15rem 0.45rem;
+      font-size: 0.75rem;
+      background: var(--surface-secondary);
+      border: 1px solid var(--border);
+      border-radius: 9999px;
+      color: var(--text-secondary);
+    }
+
+    .tag-remove {
+      color: var(--text-muted);
+      font-size: 0.6875rem;
+      cursor: pointer;
+      padding: 0 0.15rem;
+    }
+    .tag-remove:hover {
+      color: var(--danger);
+    }
+
+    .tag-input {
+      border: none;
+      background: transparent;
+      outline: none;
+      color: var(--text);
+      font-size: 0.8125rem;
+      flex: 1;
+      min-width: 100px;
     }
 
     .description-header {
@@ -337,12 +601,12 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
     }
 
     .description-textarea {
-      min-height: 140px;
+      min-height: 120px;
       font-size: 0.875rem;
     }
 
     .markdown-preview {
-      min-height: 140px;
+      min-height: 120px;
       padding: 0.75rem 0.85rem;
       background: var(--surface-secondary);
       border: 1px solid var(--border);
@@ -465,6 +729,12 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       .details-sheet {
         max-width: 100%;
       }
+      .properties-grid {
+        grid-template-columns: 1fr;
+      }
+      .tags-full-width {
+        grid-column: span 1;
+      }
     }
   `]
 })
@@ -475,6 +745,11 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
 
   title: string = '';
   description: string = '';
+  status: TaskStatus = 'todo';
+  priority: TaskPriority = 'normal';
+  dueDate: string = '';
+  tags: string[] = [];
+  newTagInput: string = '';
   checklist: ChecklistItem[] = [];
   newChecklistItemText: string = '';
 
@@ -491,6 +766,10 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
   ngOnInit() {
     this.title = this.task.title;
     this.description = this.task.description || '';
+    this.status = this.task.status || 'todo';
+    this.priority = this.task.priority || 'normal';
+    this.dueDate = this.task.due_at ? this.task.due_at.split('T')[0] : '';
+    this.tags = [...(this.task.tags || [])];
     this.checklist = JSON.parse(JSON.stringify(this.task.checklist || []));
 
     // Debounce auto-save at 600ms
@@ -506,6 +785,39 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
   onFieldChanged() {
     this.savingStatus.set('saving');
     this.changeSubject.next();
+  }
+
+  setStatus(newStatus: TaskStatus) {
+    this.status = newStatus;
+    this.onFieldChanged();
+  }
+
+  setPriority(newPriority: TaskPriority) {
+    this.priority = newPriority;
+    this.onFieldChanged();
+  }
+
+  onDueDateChanged() {
+    this.onFieldChanged();
+  }
+
+  clearDueDate() {
+    this.dueDate = '';
+    this.onFieldChanged();
+  }
+
+  addTag() {
+    const raw = this.newTagInput.replace(/#/g, '').replace(/,/g, '').trim().toLowerCase();
+    if (raw && !this.tags.includes(raw) && this.tags.length < 5) {
+      this.tags.push(raw);
+      this.newTagInput = '';
+      this.onFieldChanged();
+    }
+  }
+
+  removeTag(index: number) {
+    this.tags.splice(index, 1);
+    this.onFieldChanged();
   }
 
   insertBold() {
@@ -552,7 +864,12 @@ export class TaskDetailsComponent implements OnInit, OnDestroy {
     const payload: UpdateTaskDto = {
       title: this.title.trim() || this.task.title,
       description: this.description,
+      status: this.status,
+      priority: this.priority,
+      due_at: this.dueDate ? new Date(this.dueDate + 'T23:59:59Z').toISOString() : null,
+      tags: this.tags,
       checklist: this.checklist,
+      completed_at: this.status === 'done' ? new Date().toISOString() : null,
     };
 
     try {

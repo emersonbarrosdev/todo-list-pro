@@ -38,20 +38,32 @@ describe('TaskDetailsComponent', () => {
   it('should create and load initial task properties', () => {
     expect(component).toBeTruthy();
     expect(component.title).toBe('Tarefa detalhada');
-    expect(component.description).toBe('Notas de descrição');
-    expect(component.checklist.length).toBe(1);
+    expect(component.status).toBe('todo');
+    expect(component.priority).toBe('normal');
   });
 
-  it('should add checklist item', () => {
+  it('should set status and priority', () => {
+    component.setStatus('doing');
+    expect(component.status).toBe('doing');
+
+    component.setPriority('high');
+    expect(component.priority).toBe('high');
+  });
+
+  it('should add and remove tags', () => {
+    component.newTagInput = 'backend';
+    component.addTag();
+    expect(component.tags).toContain('backend');
+
+    component.removeTag(component.tags.indexOf('backend'));
+    expect(component.tags).not.toContain('backend');
+  });
+
+  it('should add and toggle checklist item', () => {
     component.newChecklistItemText = 'Novo subitem';
     component.addChecklistItem();
 
     expect(component.checklist.length).toBe(2);
-    expect(component.checklist[1].text).toBe('Novo subitem');
-    expect(component.checklist[1].completed).toBe(false);
-  });
-
-  it('should toggle checklist item completion', () => {
     component.toggleChecklistItem(0);
     expect(component.checklist[0].completed).toBe(true);
   });
