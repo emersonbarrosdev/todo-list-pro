@@ -10,8 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "deploy": "npm run build && npx wrangler deploy",
-    "preview": "npx wrangler dev"
+    "deploy": "npm run build && npx wrangler deploy --config wrangler.json",
+    "preview": "npx wrangler dev --config wrangler.json"
   },
   "private": true,
   "dependencies": {

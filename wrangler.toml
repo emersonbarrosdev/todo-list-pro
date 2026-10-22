@@ -1,6 +1,0 @@
-name = "todo-list-pro"
-compatibility_date = "2026-02-01"
-
-[assets]
-directory = "./dist/todo-list/browser"
-not_found_handling = "single-page-application"
