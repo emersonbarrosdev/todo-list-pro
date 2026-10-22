@@ -12,7 +12,6 @@ getTestBed().initTestEnvironment(
 );
 
 (window as unknown as { __TODO_PRO_ENV__: Record<string, string> }).__TODO_PRO_ENV__ = {
-  SUPABASE_URL: 'https://placeholder-todo-pro.supabase.co',
-  SUPABASE_PUBLISHABLE_KEY: 'placeholder-anon-key',
+  CLERK_PUBLISHABLE_KEY: 'placeholder-clerk-test-key',
+  API_URL: '/api',
 };
-
