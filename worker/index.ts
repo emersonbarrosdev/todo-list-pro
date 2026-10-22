@@ -152,10 +152,11 @@ export default {
 
     // 2. All /api/* routes require authentication
     if (url.pathname.startsWith('/api/')) {
-      const auth = await authenticate(request, env);
-      if (!auth) {
-        return json({ error: 'Não autorizado ou sessão expirada. Faça login novamente.' }, 401);
-      }
+      try {
+        const auth = await authenticate(request, env);
+        if (!auth) {
+          return json({ error: 'Não autorizado ou sessão expirada. Faça login novamente.' }, 401);
+        }
 
       const { userId } = auth;
 
@@ -198,10 +199,22 @@ export default {
               )
               .run();
 
-            return json(newProfile);
+            return json({
+              id: newProfile.id,
+              display_name: newProfile.display_name,
+              work_mode: newProfile.work_mode,
+              created_at: newProfile.created_at,
+              updated_at: newProfile.updated_at,
+            });
           }
 
-          return json(profile);
+          return json({
+            id: profile.id,
+            display_name: profile.display_name,
+            work_mode: profile.work_mode,
+            created_at: profile.created_at,
+            updated_at: profile.updated_at,
+          });
         }
 
         if (request.method === 'PUT') {
@@ -233,7 +246,6 @@ export default {
 
           return json({
             id: existing?.id || userId,
-            clerk_user_id: userId,
             display_name: displayName,
             work_mode: workMode,
             updated_at: now,
@@ -472,7 +484,10 @@ export default {
       }
 
       return json({ error: 'Endpoint não encontrado.' }, 404);
+    } catch {
+      return json({ error: 'Erro interno ao processar a requisição.' }, 500);
     }
+  }
 
     // 3. Fallback to Cloudflare Static Assets for SPA
     return env.ASSETS.fetch(request);
