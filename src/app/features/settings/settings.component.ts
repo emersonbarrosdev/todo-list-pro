@@ -1,15 +1,17 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/services/auth.service';
 import { ProfileService } from '../../core/services/profile.service';
+import { ProjectService } from '../../core/services/project.service';
 import { ToastService } from '../../core/services/toast.service';
-import { WorkMode, Profile } from '../../core/models/profile.model';
+import { Project } from '../../core/models/project.model';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [CommonModule, RouterModule, FormsModule],
   template: `
     <div class="settings-layout">
       <header class="settings-header">
@@ -28,7 +30,7 @@ import { WorkMode, Profile } from '../../core/models/profile.model';
       <main class="settings-content">
         <div class="settings-card">
           <h1 class="page-title">Configurações da Conta</h1>
-          <p class="page-subtitle">Gerencie suas preferências de uso e sessão no TODO PRO.</p>
+          <p class="page-subtitle">Gerencie suas preferências de uso, projetos arquivados e sessão no TODO PRO.</p>
 
           <!-- Email Section -->
           <section class="settings-section">
@@ -42,68 +44,60 @@ import { WorkMode, Profile } from '../../core/models/profile.model';
             </div>
           </section>
 
-          <!-- Default Work Mode -->
+          <!-- Display Name Section -->
           <section class="settings-section">
-            <div class="section-header">
-              <label class="section-label">Modo de trabalho padrão</label>
-              <span class="section-hint">Personaliza os campos exibidos nas suas tarefas</span>
-            </div>
-
-            <div class="mode-cards">
-              <!-- General -->
-              <div
-                class="mode-card"
-                [class.active]="selectedMode() === 'general'"
-                (click)="selectMode('general')"
-              >
-                <div class="mode-card-header">
-                  <div class="mode-icon mode-icon-general">📝</div>
-                  <h3 class="mode-name">Uso Geral</h3>
-                </div>
-                <p class="mode-desc">Ideal para tarefas diárias, foco em simplicidade, prazos e checklists.</p>
-              </div>
-
-              <!-- Dev -->
-              <div
-                class="mode-card"
-                [class.active]="selectedMode() === 'dev'"
-                (click)="selectMode('dev')"
-              >
-                <div class="mode-card-header">
-                  <div class="mode-icon mode-icon-dev">💻</div>
-                  <h3 class="mode-name">Desenvolvimento</h3>
-                </div>
-                <p class="mode-desc">Campos para branches, pull requests, tipos (Feature, Bug, Refactor) e projetos.</p>
-              </div>
-
-              <!-- QA -->
-              <div
-                class="mode-card"
-                [class.active]="selectedMode() === 'qa'"
-                (click)="selectMode('qa')"
-              >
-                <div class="mode-card-header">
-                  <div class="mode-icon mode-icon-qa">🧪</div>
-                  <h3 class="mode-name">QA / Testes</h3>
-                </div>
-                <p class="mode-desc">Campos de severidade, passos para reproduzir, resultado esperado e evidências.</p>
-              </div>
-            </div>
-
-            <div class="save-actions">
+            <label for="settings-display-name" class="section-label">Nome de exibição</label>
+            <div class="name-edit-group">
+              <input
+                id="settings-display-name"
+                type="text"
+                class="input"
+                [(ngModel)]="displayName"
+                placeholder="Seu nome..."
+              />
               <button
                 type="button"
-                class="btn btn-primary btn-sm"
-                (click)="savePreferences()"
-                [disabled]="isSaving()"
+                class="btn btn-secondary btn-sm"
+                (click)="saveDisplayName()"
+                [disabled]="isSavingName()"
               >
-                @if (isSaving()) {
-                  <span>Salvando...</span>
-                } @else {
-                  <span>Salvar preferência</span>
-                }
+                {{ isSavingName() ? 'Salvando...' : 'Salvar nome' }}
               </button>
             </div>
+          </section>
+
+          <!-- Archived Projects Section -->
+          <section class="settings-section">
+            <div class="section-header">
+              <label class="section-label">Projetos arquivados</label>
+              <span class="section-hint">Projetos arquivados não aparecem no seletor principal de tarefas.</span>
+            </div>
+
+            @if (isLoadingProjects()) {
+              <div class="loading-hint">Carregando projetos arquivados...</div>
+            } @else if (archivedProjects().length === 0) {
+              <div class="empty-archived">Nenhum projeto arquivado no momento.</div>
+            } @else {
+              <div class="archived-list">
+                @for (project of archivedProjects(); track project.id) {
+                  <div class="archived-item">
+                    <div class="archived-info">
+                      <span class="archived-name">{{ project.name }}</span>
+                      @if (project.description) {
+                        <span class="archived-desc">{{ project.description }}</span>
+                      }
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      (click)="unarchiveProject(project.id)"
+                    >
+                      Desarquivar
+                    </button>
+                  </div>
+                }
+              </div>
+            }
           </section>
 
           <!-- Session / Logout -->
@@ -151,6 +145,7 @@ import { WorkMode, Profile } from '../../core/models/profile.model';
       font-size: 0.875rem;
       color: var(--text-secondary);
       transition: color var(--transition-fast);
+      text-decoration: none;
     }
 
     .back-link:hover {
@@ -203,14 +198,14 @@ import { WorkMode, Profile } from '../../core/models/profile.model';
       font-size: 0.875rem;
       font-weight: 600;
       color: var(--text);
-      margin-bottom: 0.35rem;
+      margin-bottom: 0.4rem;
     }
 
     .section-hint {
       display: block;
       font-size: 0.8125rem;
       color: var(--text-muted);
-      margin-bottom: 1rem;
+      margin-bottom: 0.75rem;
     }
 
     .email-display {
@@ -230,61 +225,49 @@ import { WorkMode, Profile } from '../../core/models/profile.model';
       font-weight: 500;
     }
 
-    .mode-cards {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1rem;
-      margin-bottom: 1.25rem;
+    .name-edit-group {
+      display: flex;
+      gap: 0.75rem;
+      max-width: 420px;
     }
 
-    .mode-card {
-      background: var(--surface-secondary);
-      border: 1.5px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 1.25rem;
-      cursor: pointer;
-      transition: all var(--transition-fast);
+    .archived-list {
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
     }
 
-    .mode-card:hover {
-      background: var(--surface-hover);
-      border-color: var(--text-muted);
-    }
-
-    .mode-card.active {
-      background: var(--surface-hover);
-      border-color: var(--primary);
-      box-shadow: 0 0 0 1px var(--primary), 0 4px 16px rgba(139, 92, 246, 0.15);
-    }
-
-    .mode-card-header {
+    .archived-item {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.65rem 0.85rem;
+      background: var(--surface-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
     }
 
-    .mode-icon {
-      font-size: 1.25rem;
+    .archived-info {
+      display: flex;
+      flex-direction: column;
     }
 
-    .mode-name {
-      font-size: 0.9375rem;
+    .archived-name {
+      font-size: 0.875rem;
       font-weight: 600;
       color: var(--text);
     }
 
-    .mode-desc {
+    .archived-desc {
       font-size: 0.75rem;
-      color: var(--text-secondary);
-      line-height: 1.45;
+      color: var(--text-muted);
     }
 
-    .save-actions {
-      display: flex;
-      justify-content: flex-end;
+    .empty-archived, .loading-hint {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      padding: 0.5rem 0;
     }
 
     .section-danger-zone {
@@ -311,28 +294,28 @@ import { WorkMode, Profile } from '../../core/models/profile.model';
       color: var(--text-muted);
     }
 
-    @media (max-width: 768px) {
-      .mode-cards {
-        grid-template-columns: 1fr;
-      }
+    @media (max-width: 640px) {
       .logout-box {
         flex-direction: column;
         align-items: flex-start;
       }
     }
-  `]
+  `],
 })
 export class SettingsComponent implements OnInit {
   private auth = inject(AuthService);
   private profileService = inject(ProfileService);
+  private projectService = inject(ProjectService);
   private toast = inject(ToastService);
   private router = inject(Router);
 
   userEmail = signal<string>('carregando...');
-  selectedMode = signal<WorkMode>('general');
-  isSaving = signal<boolean>(false);
+  displayName = '';
+  isSavingName = signal(false);
+  archivedProjects = signal<Project[]>([]);
+  isLoadingProjects = signal(true);
 
-  async ngOnInit() {
+  async ngOnInit(): Promise<void> {
     const user = this.auth.currentUser();
     if (user?.email) {
       this.userEmail.set(user.email);
@@ -343,32 +326,55 @@ export class SettingsComponent implements OnInit {
     if (user) {
       try {
         const profile = await this.profileService.getProfile();
-        if (profile?.work_mode) {
-          this.selectedMode.set(profile.work_mode);
+        if (profile?.display_name) {
+          this.displayName = profile.display_name;
         }
       } catch {
-        // fallback
+        // ignore
       }
     }
+
+    await this.loadArchivedProjects();
   }
 
-  selectMode(mode: WorkMode) {
-    this.selectedMode.set(mode);
-  }
-
-  async savePreferences() {
-    this.isSaving.set(true);
+  async loadArchivedProjects(): Promise<void> {
+    this.isLoadingProjects.set(true);
     try {
-      await this.profileService.setWorkMode(this.selectedMode());
-      this.toast.success('Modo de trabalho salvo com sucesso!');
-    } catch (err: any) {
-      this.toast.error(err.message || 'Erro ao salvar preferência.');
+      const all = await this.projectService.getProjects(true);
+      this.archivedProjects.set(all.filter((p) => p.archived));
+    } catch {
+      // ignore
     } finally {
-      this.isSaving.set(false);
+      this.isLoadingProjects.set(false);
     }
   }
 
-  async handleLogout() {
+  async saveDisplayName(): Promise<void> {
+    const name = this.displayName.trim();
+    if (!name) return;
+
+    this.isSavingName.set(true);
+    try {
+      await this.profileService.updateProfile({ display_name: name });
+      this.toast.success('Nome atualizado com sucesso!');
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao atualizar nome.');
+    } finally {
+      this.isSavingName.set(false);
+    }
+  }
+
+  async unarchiveProject(projectId: string): Promise<void> {
+    try {
+      await this.projectService.archiveProject(projectId, false);
+      this.toast.success('Projeto desarquivado com sucesso!');
+      await this.loadArchivedProjects();
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao desarquivar projeto.');
+    }
+  }
+
+  async handleLogout(): Promise<void> {
     await this.auth.signOut();
     this.toast.info('Sessão encerrada.');
     this.router.navigate(['/auth']);

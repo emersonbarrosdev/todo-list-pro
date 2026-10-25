@@ -4,6 +4,7 @@ import { provideRouter } from '@angular/router';
 import { SettingsComponent } from './settings.component';
 import { AuthService } from '../../core/services/auth.service';
 import { ProfileService } from '../../core/services/profile.service';
+import { ProjectService } from '../../core/services/project.service';
 import { ToastService } from '../../core/services/toast.service';
 
 describe('SettingsComponent', () => {
@@ -18,6 +19,7 @@ describe('SettingsComponent', () => {
         provideRouter([]),
         AuthService,
         ProfileService,
+        ProjectService,
         ToastService,
       ],
     }).compileComponents();
@@ -31,11 +33,9 @@ describe('SettingsComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('should allow selecting work modes', () => {
-    component.selectMode('dev');
-    expect(component.selectedMode()).toBe('dev');
-
-    component.selectMode('qa');
-    expect(component.selectedMode()).toBe('qa');
+  it('should render email display and logout button', () => {
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.querySelector('.email-display')).toBeTruthy();
+    expect(compiled.querySelector('#btn-logout')).toBeTruthy();
   });
 });

@@ -1,67 +1,48 @@
 import { Component, EventEmitter, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { WorkMode } from '../../../core/models/profile.model';
+import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-onboarding',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="onboarding-overlay">
       <div class="onboarding-modal" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
         <div class="onboarding-badge">Boas-vindas ao TODO PRO</div>
-        <h2 id="onboarding-title" class="onboarding-title">Como você pretende usar o TODO PRO?</h2>
+        <h2 id="onboarding-title" class="onboarding-title">Crie seu primeiro projeto</h2>
         <p class="onboarding-subtitle">
-          Personalizaremos os campos e visualizações das suas tarefas de acordo com seu fluxo de trabalho. Você poderá mudar isso a qualquer momento.
+          O TODO PRO organiza suas tarefas por projetos pessoais de forma leve e rápida.
         </p>
 
-        <div class="cards-grid">
-          <!-- General -->
-          <div
-            class="choice-card"
-            [class.selected]="selectedMode === 'general'"
-            (click)="selectedMode = 'general'"
-          >
-            <div class="card-icon">📝</div>
-            <h3 class="card-title">Uso geral</h3>
-            <p class="card-desc">Organização pessoal ou profissional simples, rápida, com prazos, prioridades e checklists.</p>
+        <form (ngSubmit)="confirmProject()" class="onboarding-form">
+          <div class="input-group">
+            <label for="initial-project-name" class="input-label">Nome do projeto</label>
+            <input
+              id="initial-project-name"
+              type="text"
+              class="input project-input"
+              [(ngModel)]="projectName"
+              name="projectName"
+              placeholder="Ex: Narrativa Studio, TODO PRO, Site pessoal..."
+              required
+              autofocus
+            />
           </div>
 
-          <!-- Dev -->
-          <div
-            class="choice-card"
-            [class.selected]="selectedMode === 'dev'"
-            (click)="selectedMode = 'dev'"
+          <button
+            id="btn-confirm-onboarding"
+            type="submit"
+            class="btn btn-primary btn-block"
+            [disabled]="!projectName.trim()"
           >
-            <div class="card-icon">💻</div>
-            <h3 class="card-title">Desenvolvimento</h3>
-            <p class="card-desc">Focado em engenharia de software: features, bugs, branches, pull requests e critérios de aceite.</p>
-          </div>
-
-          <!-- QA -->
-          <div
-            class="choice-card"
-            [class.selected]="selectedMode === 'qa'"
-            (click)="selectedMode = 'qa'"
-          >
-            <div class="card-icon">🧪</div>
-            <h3 class="card-title">QA / Testes</h3>
-            <p class="card-desc">Ideal para qualidade: testes, bugs, regressões, níveis de severidade, passos de reprodução e evidências.</p>
-          </div>
-        </div>
-
-        <button
-          id="btn-confirm-onboarding"
-          type="button"
-          class="btn btn-primary btn-block"
-          (click)="confirmSelection()"
-        >
-          <span>Começar a usar o TODO PRO</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-            <polyline points="12 5 19 12 12 19"></polyline>
-          </svg>
-        </button>
+            <span>Criar projeto</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <polyline points="12 5 19 12 12 19"></polyline>
+            </svg>
+          </button>
+        </form>
       </div>
     </div>
   `,
@@ -81,12 +62,12 @@ import { WorkMode } from '../../../core/models/profile.model';
 
     .onboarding-modal {
       width: 100%;
-      max-width: 680px;
-      background: var(--surface);
+      max-width: 480px;
+      background: #161622;
       border: 1px solid var(--border);
       border-radius: var(--radius-xl);
-      padding: 2.5rem;
-      box-shadow: var(--shadow-lg);
+      padding: 2.25rem;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.6);
       text-align: center;
       animation: modal-scale 200ms ease-out;
     }
@@ -97,79 +78,68 @@ import { WorkMode } from '../../../core/models/profile.model';
       border-radius: 9999px;
       font-size: 0.75rem;
       font-weight: 600;
-      background: var(--primary-soft);
-      color: var(--accent);
+      background: rgba(139, 92, 246, 0.15);
+      color: #C4B5FD;
       border: 1px solid rgba(139, 92, 246, 0.3);
       margin-bottom: 1rem;
     }
 
     .onboarding-title {
-      font-size: 1.625rem;
+      font-size: 1.5rem;
       font-weight: 700;
       letter-spacing: -0.02em;
       margin-bottom: 0.5rem;
+      color: #FFFFFF;
     }
 
     .onboarding-subtitle {
       font-size: 0.875rem;
       color: var(--text-secondary);
-      max-width: 520px;
-      margin: 0 auto 2rem;
+      margin: 0 auto 1.75rem;
       line-height: 1.5;
     }
 
-    .cards-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1rem;
-      margin-bottom: 2rem;
+    .onboarding-form {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
       text-align: left;
     }
 
-    .choice-card {
-      background: var(--surface-secondary);
-      border: 1.5px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: 1.25rem;
-      cursor: pointer;
-      transition: all var(--transition-fast);
+    .input-group {
       display: flex;
       flex-direction: column;
       gap: 0.45rem;
     }
 
-    .choice-card:hover {
-      background: var(--surface-hover);
-      border-color: var(--text-muted);
-    }
-
-    .choice-card.selected {
-      background: var(--surface-hover);
-      border-color: var(--primary);
-      box-shadow: 0 0 0 1px var(--primary), 0 4px 16px rgba(139, 92, 246, 0.2);
-    }
-
-    .card-icon {
-      font-size: 1.5rem;
-      margin-bottom: 0.25rem;
-    }
-
-    .card-title {
-      font-size: 0.9375rem;
+    .input-label {
+      font-size: 0.8125rem;
       font-weight: 600;
       color: var(--text);
     }
 
-    .card-desc {
-      font-size: 0.75rem;
-      color: var(--text-secondary);
-      line-height: 1.45;
+    .project-input {
+      padding: 0.65rem 0.85rem;
+      font-size: 0.9375rem;
+      background: var(--surface-secondary);
+      border: 1px solid var(--border);
+      color: #FFFFFF;
+      border-radius: var(--radius-sm);
+    }
+
+    .project-input:focus {
+      border-color: var(--primary);
     }
 
     .btn-block {
       width: 100%;
-      padding: 0.8rem;
+      padding: 0.75rem;
       font-size: 0.9375rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
     }
 
     @keyframes fade-in {
@@ -181,23 +151,17 @@ import { WorkMode } from '../../../core/models/profile.model';
       from { opacity: 0; transform: scale(0.96); }
       to { opacity: 1; transform: scale(1); }
     }
-
-    @media (max-width: 640px) {
-      .cards-grid {
-        grid-template-columns: 1fr;
-      }
-      .onboarding-modal {
-        padding: 1.5rem;
-      }
-    }
-  `]
+  `],
 })
 export class OnboardingComponent {
-  @Output() completed = new EventEmitter<WorkMode>();
+  @Output() projectCreated = new EventEmitter<string>();
 
-  selectedMode: WorkMode = 'general';
+  projectName = '';
 
-  confirmSelection() {
-    this.completed.emit(this.selectedMode);
+  confirmProject(): void {
+    const trimmed = this.projectName.trim();
+    if (trimmed) {
+      this.projectCreated.emit(trimmed);
+    }
   }
 }

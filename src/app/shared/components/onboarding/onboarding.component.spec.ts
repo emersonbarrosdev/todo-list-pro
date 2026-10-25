@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { OnboardingComponent } from './onboarding.component';
-import { WorkMode } from '../../../core/models/profile.model';
 
 describe('OnboardingComponent', () => {
   let component: OnboardingComponent;
@@ -17,20 +16,20 @@ describe('OnboardingComponent', () => {
     fixture.detectChanges();
   });
 
-  it('should create onboarding component with default general mode', () => {
-    expect(component).toBeTruthy();
-    expect(component.selectedMode).toBe('general');
+  it('should render project creation input and button', () => {
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Crie seu primeiro projeto');
+    const input = compiled.querySelector('#initial-project-name');
+    expect(input).toBeTruthy();
   });
 
-  it('should emit completed event with chosen mode', () => {
-    let emittedMode: WorkMode | null = null;
-    component.completed.subscribe((mode) => {
-      emittedMode = mode;
-    });
+  it('should emit projectCreated with project name', () => {
+    let createdName = '';
+    component.projectCreated.subscribe((name) => (createdName = name));
 
-    component.selectedMode = 'dev';
-    component.confirmSelection();
+    component.projectName = 'Narrativa Studio';
+    component.confirmProject();
 
-    expect(emittedMode).toBe('dev');
+    expect(createdName).toBe('Narrativa Studio');
   });
 });
