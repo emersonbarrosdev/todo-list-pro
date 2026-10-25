@@ -5,9 +5,11 @@
  *
  * Security & Free-tier Hardening:
  * - Cryptographic RS256 JWT signature verification (Web Crypto API)
- * - Networkless local token verification (0 Clerk backend calls per task/profile API request)
+ * - Strict rejection of mock tokens in production (401 Unauthorized)
+ * - Networkless local token verification (0 Clerk backend calls per API request)
  * - Strict CORS allowlist (No wildcard '*' in production)
  * - D1 single-statement batch persistence (Minimal rows read/written)
+ * - User isolation enforced across all Projects and Tasks
  * - Cloudflare Static Assets for SPA routes
  */
 
@@ -32,26 +34,36 @@ export interface ProfileRow {
   id: string;
   clerk_user_id: string;
   display_name: string;
-  work_mode: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectRow {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  archived: number;
   created_at: string;
   updated_at: string;
 }
 
 export interface TaskRow {
   id: string;
+  project_id: string;
   user_id: string;
   title: string;
   description: string;
   status: string;
   priority: string;
   due_at: string | null;
+  qa_checklist: string;
+  qa_result: string;
+  qa_notes: string;
   completed_at: string | null;
-  tags: string;
-  checklist: string;
-  work_mode: string;
-  metadata: string;
   created_at: string;
   updated_at: string;
+  project_name?: string;
 }
 
 export interface Env {
@@ -60,6 +72,8 @@ export interface Env {
   CLERK_SECRET_KEY?: string;
   CLERK_PUBLISHABLE_KEY?: string;
   CLERK_JWT_KEY?: string;
+  ENVIRONMENT?: string;
+  ALLOW_TEST_MOCK_TOKEN?: boolean;
 }
 
 // Allowed CORS origins: production Worker URL and standard local development origins
@@ -168,8 +182,8 @@ function base64UrlDecode(base64Url: string): string {
 
 /**
  * Validates JWT cryptographically using Web Crypto API.
+ * In production, mock tokens are STRICTLY REJECTED with 401.
  * Checks signature, algorithm (RS256), expiration, not-before, and issuer.
- * Rejects expired, malformed, or forged tokens with 401.
  */
 export async function authenticateRequest(
   request: Request,
@@ -183,8 +197,18 @@ export async function authenticateRequest(
   const token = authHeader.substring(7).trim();
   if (!token) return null;
 
-  // Hermetic mock token support for offline unit tests
+  // STRICT SECURITY CHECK: Reject mock tokens in production unconditionally
   if (token.startsWith('mock_token_')) {
+    const url = new URL(request.url);
+    const isProduction =
+      url.hostname.includes('workers.dev') ||
+      env.ENVIRONMENT === 'production' ||
+      !env.ALLOW_TEST_MOCK_TOKEN;
+
+    if (isProduction) {
+      return null; // Enforce 401 Unauthorized in production!
+    }
+
     const mockId = token.replace('mock_token_', '');
     return { userId: mockId || 'mock-user' };
   }
@@ -255,6 +279,59 @@ export async function authenticateRequest(
   }
 }
 
+/**
+ * Ensures user has at least one active project in D1.
+ * Returns the default project for the user.
+ */
+async function ensureDefaultProject(db: D1Database, userId: string): Promise<ProjectRow> {
+  const existing = await db
+    .prepare('SELECT * FROM projects WHERE user_id = ? AND archived = 0 ORDER BY created_at ASC')
+    .bind(userId)
+    .first<ProjectRow>();
+
+  if (existing) {
+    return existing;
+  }
+
+  const now = new Date().toISOString();
+  const defaultId = 'proj_' + crypto.randomUUID().slice(0, 12);
+  const newProject: ProjectRow = {
+    id: defaultId,
+    user_id: userId,
+    name: 'Meu Projeto',
+    description: 'Projeto principal',
+    archived: 0,
+    created_at: now,
+    updated_at: now,
+  };
+
+  await db
+    .prepare(
+      'INSERT INTO projects (id, user_id, name, description, archived, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    )
+    .bind(
+      newProject.id,
+      newProject.user_id,
+      newProject.name,
+      newProject.description,
+      newProject.archived,
+      newProject.created_at,
+      newProject.updated_at
+    )
+    .run();
+
+  // Associate any orphan tasks with this default project
+  await db
+    .prepare(
+      'UPDATE tasks SET project_id = ? WHERE user_id = ? AND (project_id IS NULL OR project_id = "")'
+    )
+    .bind(newProject.id, userId)
+    .run()
+    .catch(() => {});
+
+  return newProject;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -274,11 +351,15 @@ export default {
 
     // 1. Health check (public)
     if (url.pathname === '/api/health') {
-      return json({
-        status: 'ok',
-        service: 'todo-pro',
-        timestamp: new Date().toISOString(),
-      }, 200, request);
+      return json(
+        {
+          status: 'ok',
+          service: 'todo-pro',
+          timestamp: new Date().toISOString(),
+        },
+        200,
+        request
+      );
     }
 
     // 2. All /api/* routes require cryptographic authentication
@@ -286,14 +367,21 @@ export default {
       try {
         const auth = await authenticateRequest(request, env);
         if (!auth) {
-          return json({ error: 'Não autorizado ou sessão expirada. Faça login novamente.' }, 401, request);
+          return json(
+            { error: 'Não autorizado ou sessão expirada. Faça login novamente.' },
+            401,
+            request
+          );
         }
 
         const { userId } = auth;
 
-        // Ensure D1 database is bound
         if (!env.DB) {
-          return json({ error: 'Banco de dados D1 indisponível momentaneamente.' }, 503, request);
+          return json(
+            { error: 'Banco de dados D1 indisponível momentaneamente.' },
+            503,
+            request
+          );
         }
 
         // --- Profile Routes: /api/profile ---
@@ -311,40 +399,27 @@ export default {
                 id: 'prof_' + crypto.randomUUID().slice(0, 12),
                 clerk_user_id: userId,
                 display_name: 'Usuário',
-                work_mode: 'general',
                 created_at: now,
                 updated_at: now,
               };
 
               await env.DB.prepare(
-                'INSERT INTO profiles (id, clerk_user_id, display_name, work_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+                'INSERT INTO profiles (id, clerk_user_id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
               )
                 .bind(
                   newProfile.id,
                   newProfile.clerk_user_id,
                   newProfile.display_name,
-                  newProfile.work_mode,
                   newProfile.created_at,
                   newProfile.updated_at
                 )
-                .run();
+                .run()
+                .catch(() => {});
 
-              return json({
-                id: newProfile.id,
-                display_name: newProfile.display_name,
-                work_mode: newProfile.work_mode,
-                created_at: newProfile.created_at,
-                updated_at: newProfile.updated_at,
-              }, 200, request);
+              return json(newProfile, 200, request);
             }
 
-            return json({
-              id: profile.id,
-              display_name: profile.display_name,
-              work_mode: profile.work_mode,
-              created_at: profile.created_at,
-              updated_at: profile.updated_at,
-            }, 200, request);
+            return json(profile, 200, request);
           }
 
           if (request.method === 'PUT') {
@@ -357,29 +432,201 @@ export default {
               .bind(userId)
               .first<ProfileRow>();
 
-            const displayName = body.display_name !== undefined ? body.display_name : (existing?.display_name || 'Usuário');
-            const workMode = body.work_mode !== undefined ? body.work_mode : (existing?.work_mode || 'general');
+            const displayName =
+              body.display_name !== undefined
+                ? body.display_name
+                : existing?.display_name || 'Usuário';
 
             if (existing) {
               await env.DB.prepare(
-                'UPDATE profiles SET display_name = ?, work_mode = ?, updated_at = ? WHERE clerk_user_id = ?'
+                'UPDATE profiles SET display_name = ?, updated_at = ? WHERE clerk_user_id = ?'
               )
-                .bind(displayName, workMode, now, userId)
+                .bind(displayName, now, userId)
                 .run();
             } else {
               await env.DB.prepare(
-                'INSERT INTO profiles (id, clerk_user_id, display_name, work_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+                'INSERT INTO profiles (id, clerk_user_id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
               )
-                .bind('prof_' + crypto.randomUUID().slice(0, 12), userId, displayName, workMode, now, now)
+                .bind('prof_' + crypto.randomUUID().slice(0, 12), userId, displayName, now, now)
                 .run();
             }
 
-            return json({
-              id: existing?.id || userId,
-              display_name: displayName,
-              work_mode: workMode,
-              updated_at: now,
-            }, 200, request);
+            return json(
+              {
+                id: existing?.id || userId,
+                display_name: displayName,
+                updated_at: now,
+              },
+              200,
+              request
+            );
+          }
+
+          return json({ error: 'Método não permitido.' }, 405, request);
+        }
+
+        // --- Projects Collection Routes: /api/projects ---
+        if (url.pathname === '/api/projects') {
+          if (request.method === 'GET') {
+            const includeArchived = url.searchParams.get('archived') === 'true';
+
+            let query = 'SELECT * FROM projects WHERE user_id = ?';
+            if (!includeArchived) {
+              query += ' AND archived = 0';
+            }
+            query += ' ORDER BY created_at ASC';
+
+            const { results } = await env.DB.prepare(query).bind(userId).all<ProjectRow>();
+
+            let projects = results || [];
+
+            // Auto-seed default project if user has no projects yet
+            if (projects.length === 0 && !includeArchived) {
+              const defaultProj = await ensureDefaultProject(env.DB, userId);
+              projects = [defaultProj];
+            }
+
+            const mapped = projects.map((p) => ({
+              ...p,
+              archived: Boolean(p.archived),
+            }));
+
+            return json(mapped, 200, request);
+          }
+
+          if (request.method === 'POST') {
+            const body: any = await request.json().catch(() => ({}));
+            const name = (body.name || '').trim();
+            if (!name) {
+              return json({ error: 'O nome do projeto é obrigatório.' }, 400, request);
+            }
+
+            const now = new Date().toISOString();
+            const id = 'proj_' + crypto.randomUUID().slice(0, 12);
+            const description = (body.description || '').trim();
+
+            await env.DB.prepare(
+              'INSERT INTO projects (id, user_id, name, description, archived, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)'
+            )
+              .bind(id, userId, name, description, now, now)
+              .run();
+
+            return json(
+              {
+                id,
+                user_id: userId,
+                name,
+                description,
+                archived: false,
+                created_at: now,
+                updated_at: now,
+              },
+              201,
+              request
+            );
+          }
+
+          return json({ error: 'Método não permitido.' }, 405, request);
+        }
+
+        // --- Project Item Routes: /api/projects/:id ---
+        const projectItemMatch = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
+        if (projectItemMatch) {
+          const projectId = projectItemMatch[1];
+
+          if (request.method === 'GET') {
+            const project = await env.DB.prepare(
+              'SELECT * FROM projects WHERE id = ? AND user_id = ?'
+            )
+              .bind(projectId, userId)
+              .first<ProjectRow>();
+
+            if (!project) {
+              return json({ error: 'Projeto não encontrado.' }, 404, request);
+            }
+
+            return json(
+              {
+                ...project,
+                archived: Boolean(project.archived),
+              },
+              200,
+              request
+            );
+          }
+
+          if (request.method === 'PUT' || request.method === 'PATCH') {
+            const body: any = await request.json().catch(() => ({}));
+            const existing = await env.DB.prepare(
+              'SELECT * FROM projects WHERE id = ? AND user_id = ?'
+            )
+              .bind(projectId, userId)
+              .first<ProjectRow>();
+
+            if (!existing) {
+              return json({ error: 'Projeto não encontrado.' }, 404, request);
+            }
+
+            const now = new Date().toISOString();
+            const name = body.name !== undefined ? body.name.trim() : existing.name;
+            const description =
+              body.description !== undefined ? body.description.trim() : existing.description;
+            const archived =
+              body.archived !== undefined ? (body.archived ? 1 : 0) : existing.archived;
+
+            if (!name) {
+              return json({ error: 'O nome do projeto não pode ser vazio.' }, 400, request);
+            }
+
+            await env.DB.prepare(
+              'UPDATE projects SET name = ?, description = ?, archived = ?, updated_at = ? WHERE id = ? AND user_id = ?'
+            )
+              .bind(name, description, archived, now, projectId, userId)
+              .run();
+
+            return json(
+              {
+                id: projectId,
+                user_id: userId,
+                name,
+                description,
+                archived: Boolean(archived),
+                created_at: existing.created_at,
+                updated_at: now,
+              },
+              200,
+              request
+            );
+          }
+
+          return json({ error: 'Método não permitido.' }, 405, request);
+        }
+
+        // --- Project Tasks Route: /api/projects/:projectId/tasks ---
+        const projectTasksMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/tasks$/);
+        if (projectTasksMatch) {
+          const targetProjectId = projectTasksMatch[1];
+
+          if (request.method === 'GET') {
+            const { results } = await env.DB.prepare(
+              `SELECT t.*, p.name AS project_name
+               FROM tasks t
+               LEFT JOIN projects p ON t.project_id = p.id
+               WHERE t.user_id = ? AND t.project_id = ?
+               ORDER BY t.created_at DESC`
+            )
+              .bind(userId, targetProjectId)
+              .all<TaskRow>();
+
+            const tasks = (results || []).map((row) => ({
+              ...row,
+              qa_checklist:
+                typeof row.qa_checklist === 'string'
+                  ? JSON.parse(row.qa_checklist || '[]')
+                  : row.qa_checklist || [],
+            }));
+
+            return json(tasks, 200, request);
           }
 
           return json({ error: 'Método não permitido.' }, 405, request);
@@ -388,18 +635,31 @@ export default {
         // --- Tasks Collection Routes: /api/tasks ---
         if (url.pathname === '/api/tasks') {
           if (request.method === 'GET') {
-            // Load user tasks once for client-side manipulation
-            const { results } = await env.DB.prepare(
-              'SELECT * FROM tasks WHERE user_id = ? ORDER BY created_at DESC'
-            )
-              .bind(userId)
-              .all();
+            const projectIdParam = url.searchParams.get('projectId');
 
-            const tasks = (results || []).map((row: any) => ({
+            let query = `
+              SELECT t.*, p.name AS project_name
+              FROM tasks t
+              LEFT JOIN projects p ON t.project_id = p.id
+              WHERE t.user_id = ?
+            `;
+            const params: any[] = [userId];
+
+            if (projectIdParam && projectIdParam !== 'all') {
+              query += ' AND t.project_id = ?';
+              params.push(projectIdParam);
+            }
+
+            query += ' ORDER BY t.created_at DESC';
+
+            const { results } = await env.DB.prepare(query).bind(...params).all<TaskRow>();
+
+            const tasks = (results || []).map((row) => ({
               ...row,
-              tags: typeof row.tags === 'string' ? JSON.parse(row.tags || '[]') : row.tags || [],
-              checklist: typeof row.checklist === 'string' ? JSON.parse(row.checklist || '[]') : row.checklist || [],
-              metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata || '{}') : row.metadata || {},
+              qa_checklist:
+                typeof row.qa_checklist === 'string'
+                  ? JSON.parse(row.qa_checklist || '[]')
+                  : row.qa_checklist || [],
             }));
 
             return json(tasks, 200, request);
@@ -407,45 +667,61 @@ export default {
 
           if (request.method === 'POST') {
             const body: any = await request.json().catch(() => ({}));
-            const now = new Date().toISOString();
-
-            const id = 'task_' + crypto.randomUUID();
             const title = (body.title || '').trim();
             if (!title) {
               return json({ error: 'O título da tarefa é obrigatório.' }, 400, request);
             }
 
+            // Ensure valid project_id belonging to user
+            let targetProjectId = body.project_id;
+            if (targetProjectId) {
+              const projectCheck = await env.DB.prepare(
+                'SELECT id FROM projects WHERE id = ? AND user_id = ?'
+              )
+                .bind(targetProjectId, userId)
+                .first();
+
+              if (!projectCheck) {
+                targetProjectId = null;
+              }
+            }
+
+            if (!targetProjectId) {
+              const defaultProj = await ensureDefaultProject(env.DB, userId);
+              targetProjectId = defaultProj.id;
+            }
+
+            const now = new Date().toISOString();
+            const id = 'task_' + crypto.randomUUID();
             const description = body.description || '';
-            const status = body.status || 'todo';
+            const status = body.status || 'backlog';
             const priority = body.priority || 'normal';
             const due_at = body.due_at || null;
-            const tags = JSON.stringify(body.tags || []);
-            const checklist = JSON.stringify(body.checklist || []);
-            const work_mode = body.work_mode || 'general';
-            const metadata = JSON.stringify(body.metadata || {});
+            const qa_checklist = JSON.stringify(body.qa_checklist || []);
+            const qa_result = body.qa_result || 'pending';
+            const qa_notes = body.qa_notes || '';
             const completed_at = status === 'done' ? now : null;
 
-            // Direct single-statement write to D1
             await env.DB.prepare(
               `INSERT INTO tasks (
-                id, user_id, title, description, status, priority,
-                due_at, completed_at, tags, checklist, work_mode, metadata,
+                id, project_id, user_id, title, description, status, priority,
+                due_at, qa_checklist, qa_result, qa_notes, completed_at,
                 created_at, updated_at
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             )
               .bind(
                 id,
+                targetProjectId,
                 userId,
                 title,
                 description,
                 status,
                 priority,
                 due_at,
+                qa_checklist,
+                qa_result,
+                qa_notes,
                 completed_at,
-                tags,
-                checklist,
-                work_mode,
-                metadata,
                 now,
                 now
               )
@@ -454,17 +730,17 @@ export default {
             return json(
               {
                 id,
+                project_id: targetProjectId,
                 user_id: userId,
                 title,
                 description,
                 status,
                 priority,
                 due_at,
+                qa_checklist: body.qa_checklist || [],
+                qa_result,
+                qa_notes,
                 completed_at,
-                tags: body.tags || [],
-                checklist: body.checklist || [],
-                work_mode,
-                metadata: body.metadata || {},
                 created_at: now,
                 updated_at: now,
               },
@@ -483,7 +759,10 @@ export default {
 
           if (request.method === 'GET') {
             const row = await env.DB.prepare(
-              'SELECT * FROM tasks WHERE id = ? AND user_id = ?'
+              `SELECT t.*, p.name AS project_name
+               FROM tasks t
+               LEFT JOIN projects p ON t.project_id = p.id
+               WHERE t.id = ? AND t.user_id = ?`
             )
               .bind(taskId, userId)
               .first<TaskRow>();
@@ -492,12 +771,17 @@ export default {
               return json({ error: 'Tarefa não encontrada.' }, 404, request);
             }
 
-            return json({
-              ...row,
-              tags: typeof row.tags === 'string' ? JSON.parse(row.tags || '[]') : row.tags || [],
-              checklist: typeof row.checklist === 'string' ? JSON.parse(row.checklist || '[]') : row.checklist || [],
-              metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata || '{}') : row.metadata || {},
-            }, 200, request);
+            return json(
+              {
+                ...row,
+                qa_checklist:
+                  typeof row.qa_checklist === 'string'
+                    ? JSON.parse(row.qa_checklist || '[]')
+                    : row.qa_checklist || [],
+              },
+              200,
+              request
+            );
           }
 
           if (request.method === 'PUT' || request.method === 'PATCH') {
@@ -516,14 +800,30 @@ export default {
             }
 
             const title = body.title !== undefined ? body.title.trim() : existing.title;
-            const description = body.description !== undefined ? body.description : existing.description;
+            const description =
+              body.description !== undefined ? body.description : existing.description;
             const status = body.status !== undefined ? body.status : existing.status;
             const priority = body.priority !== undefined ? body.priority : existing.priority;
             const due_at = body.due_at !== undefined ? body.due_at : existing.due_at;
-            const tags = body.tags !== undefined ? JSON.stringify(body.tags) : existing.tags;
-            const checklist = body.checklist !== undefined ? JSON.stringify(body.checklist) : existing.checklist;
-            const work_mode = body.work_mode !== undefined ? body.work_mode : existing.work_mode;
-            const metadata = body.metadata !== undefined ? JSON.stringify(body.metadata) : existing.metadata;
+            const qa_checklist =
+              body.qa_checklist !== undefined
+                ? JSON.stringify(body.qa_checklist)
+                : existing.qa_checklist;
+            const qa_result = body.qa_result !== undefined ? body.qa_result : existing.qa_result;
+            const qa_notes = body.qa_notes !== undefined ? body.qa_notes : existing.qa_notes;
+
+            let projectId = existing.project_id;
+            if (body.project_id && body.project_id !== existing.project_id) {
+              const projectCheck = await env.DB.prepare(
+                'SELECT id FROM projects WHERE id = ? AND user_id = ?'
+              )
+                .bind(body.project_id, userId)
+                .first();
+
+              if (projectCheck) {
+                projectId = body.project_id;
+              }
+            }
 
             let completed_at = existing.completed_at;
             if (status === 'done' && !existing.completed_at) {
@@ -535,50 +835,53 @@ export default {
             // Single update write to D1
             await env.DB.prepare(
               `UPDATE tasks SET
-                title = ?, description = ?, status = ?, priority = ?,
-                due_at = ?, completed_at = ?, tags = ?, checklist = ?,
-                work_mode = ?, metadata = ?, updated_at = ?
+                project_id = ?, title = ?, description = ?, status = ?, priority = ?,
+                due_at = ?, qa_checklist = ?, qa_result = ?, qa_notes = ?,
+                completed_at = ?, updated_at = ?
               WHERE id = ? AND user_id = ?`
             )
               .bind(
+                projectId,
                 title,
                 description,
                 status,
                 priority,
                 due_at,
+                qa_checklist,
+                qa_result,
+                qa_notes,
                 completed_at,
-                tags,
-                checklist,
-                work_mode,
-                metadata,
                 now,
                 taskId,
                 userId
               )
               .run();
 
-            return json({
-              id: taskId,
-              user_id: userId,
-              title,
-              description,
-              status,
-              priority,
-              due_at,
-              completed_at,
-              tags: typeof tags === 'string' ? JSON.parse(tags) : tags,
-              checklist: typeof checklist === 'string' ? JSON.parse(checklist) : checklist,
-              work_mode,
-              metadata: typeof metadata === 'string' ? JSON.parse(metadata) : metadata,
-              created_at: existing.created_at,
-              updated_at: now,
-            }, 200, request);
+            return json(
+              {
+                id: taskId,
+                project_id: projectId,
+                user_id: userId,
+                title,
+                description,
+                status,
+                priority,
+                due_at,
+                qa_checklist:
+                  typeof qa_checklist === 'string' ? JSON.parse(qa_checklist) : qa_checklist,
+                qa_result,
+                qa_notes,
+                completed_at,
+                created_at: existing.created_at,
+                updated_at: now,
+              },
+              200,
+              request
+            );
           }
 
           if (request.method === 'DELETE') {
-            const res = await env.DB.prepare(
-              'DELETE FROM tasks WHERE id = ? AND user_id = ?'
-            )
+            await env.DB.prepare('DELETE FROM tasks WHERE id = ? AND user_id = ?')
               .bind(taskId, userId)
               .run();
 
