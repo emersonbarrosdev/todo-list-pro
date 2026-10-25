@@ -19,24 +19,16 @@ describe('ProfileService', () => {
   it('should get default profile when none exists', async () => {
     const profile = await service.getProfile();
     expect(profile).toBeTruthy();
-    expect(profile?.work_mode).toBe('general');
-  });
-
-  it('should update and persist work mode', async () => {
-    const updated = await service.setWorkMode('dev');
-    expect(updated.work_mode).toBe('dev');
-
-    const retrieved = await service.getProfile();
-    expect(retrieved?.work_mode).toBe('dev');
+    expect(profile?.display_name).toBeTruthy();
   });
 
   it('should update display name', async () => {
     const updated = await service.updateProfile({
       display_name: 'Engenheiro Senior',
-      work_mode: 'qa',
     });
 
     expect(updated.display_name).toBe('Engenheiro Senior');
-    expect(updated.work_mode).toBe('qa');
+    const retrieved = await service.getProfile();
+    expect(retrieved?.display_name).toBe('Engenheiro Senior');
   });
 });

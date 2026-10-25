@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { ApiClientService } from './api-client.service';
-import { Profile, WorkMode } from '../models/profile.model';
+import { Profile } from '../models/profile.model';
 
 @Injectable({
   providedIn: 'root',
@@ -21,12 +21,5 @@ export class ProfileService {
    */
   async updateProfile(updates: Partial<Profile>): Promise<Profile> {
     return this.api.put<Profile>('/profile', updates);
-  }
-
-  /**
-   * Sets preferred work mode in D1.
-   */
-  async setWorkMode(mode: WorkMode): Promise<Profile> {
-    return this.updateProfile({ work_mode: mode });
   }
 }

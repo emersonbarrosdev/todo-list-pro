@@ -1,10 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 import { ApiClientService } from './api-client.service';
-import { Task, CreateTaskDto, UpdateTaskDto, WorkMode, TaskStatus, TaskPriority } from '../models/task.model';
+import { Task, CreateTaskDto, UpdateTaskDto, TaskStatus, TaskPriority } from '../models/task.model';
 
 export interface TaskFilterOptions {
+  projectId?: string;
   status?: TaskStatus | 'all';
-  workMode?: WorkMode | 'all';
   priority?: TaskPriority | 'all';
   searchQuery?: string;
   sortBy?: 'recent' | 'oldest' | 'due_date' | 'priority';
@@ -18,10 +18,13 @@ export class TaskService {
 
   /**
    * Loads user tasks from D1 through Worker API.
-   * Executed once on initial load, never on filter/search/sort.
+   * If a specific projectId is passed, loads only that project's tasks.
+   * Otherwise loads all tasks.
+   * Executed once on initial load or project switch, never on filter/search/sort.
    */
-  async getTasks(): Promise<Task[]> {
-    return this.api.get<Task[]>('/tasks');
+  async getTasks(projectId?: string): Promise<Task[]> {
+    const endpoint = projectId && projectId !== 'all' ? `/tasks?projectId=${projectId}` : '/tasks';
+    return this.api.get<Task[]>(endpoint);
   }
 
   async getTaskById(id: string): Promise<Task> {
@@ -30,7 +33,7 @@ export class TaskService {
 
   /**
    * Persists a newly created task directly in D1.
-   * Triggered ONLY when the user clicks 'Criar tarefa' or 'Salvar'.
+   * Triggered ONLY when the user explicitly clicks 'Criar tarefa'.
    */
   async createTask(dto: CreateTaskDto): Promise<Task> {
     return this.api.post<Task>('/tasks', dto);
@@ -38,7 +41,7 @@ export class TaskService {
 
   /**
    * Persists the entire task state into D1 with a single PUT call.
-   * Triggered ONLY when the user clicks 'Salvar' or uses Ctrl+S.
+   * Triggered ONLY when the user clicks 'Salvar' or uses Ctrl+S / Cmd+S.
    */
   async updateTask(id: string, updates: UpdateTaskDto): Promise<Task> {
     return this.api.put<Task>(`/tasks/${id}`, updates);
@@ -60,12 +63,12 @@ export class TaskService {
 
     if (!filters) return result;
 
-    if (filters.status && filters.status !== 'all') {
-      result = result.filter((t) => t.status === filters.status);
+    if (filters.projectId && filters.projectId !== 'all') {
+      result = result.filter((t) => t.project_id === filters.projectId);
     }
 
-    if (filters.workMode && filters.workMode !== 'all') {
-      result = result.filter((t) => t.work_mode === filters.workMode);
+    if (filters.status && filters.status !== 'all') {
+      result = result.filter((t) => t.status === filters.status);
     }
 
     if (filters.priority && filters.priority !== 'all') {
@@ -78,7 +81,7 @@ export class TaskService {
         (t) =>
           t.title.toLowerCase().includes(q) ||
           t.description.toLowerCase().includes(q) ||
-          (t.tags && t.tags.some((tag) => tag.toLowerCase().includes(q)))
+          (t.project_name && t.project_name.toLowerCase().includes(q))
       );
     }
 
@@ -94,6 +97,7 @@ export class TaskService {
       const priorityOrder: Record<string, number> = { high: 3, normal: 2, low: 1 };
       result.sort((a, b) => (priorityOrder[b.priority] || 0) - (priorityOrder[a.priority] || 0));
     } else {
+      // Default: recent
       result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     }
 
