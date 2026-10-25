@@ -3,6 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { TasksComponent } from './tasks.component';
 import { TaskService } from '../../core/services/task.service';
+import { ProjectService } from '../../core/services/project.service';
 import { ApiClientService } from '../../core/services/api-client.service';
 import { AuthService } from '../../core/services/auth.service';
 import { ProfileService } from '../../core/services/profile.service';
@@ -14,6 +15,7 @@ describe('TasksComponent', () => {
   let component: TasksComponent;
   let fixture: ComponentFixture<TasksComponent>;
   let taskService: TaskService;
+  let projectService: ProjectService;
 
   beforeEach(async () => {
     localStorage.clear();
@@ -22,6 +24,7 @@ describe('TasksComponent', () => {
       providers: [
         provideRouter([]),
         TaskService,
+        ProjectService,
         ApiClientService,
         AuthService,
         ClerkService,
@@ -33,50 +36,39 @@ describe('TasksComponent', () => {
     fixture = TestBed.createComponent(TasksComponent);
     component = fixture.componentInstance;
     taskService = TestBed.inject(TaskService);
+    projectService = TestBed.inject(ProjectService);
     fixture.detectChanges();
   });
 
-  it('should create TasksComponent and load initial empty tasks', () => {
+  it('should create TasksComponent and load initial projects', async () => {
     expect(component).toBeTruthy();
-    expect(component.tasks().length).toBe(0);
+    await component.loadInitialData();
+    expect(component.projects().length).toBeGreaterThanOrEqual(1);
   });
 
-  it('should open empty local form on new task without writing to server', () => {
-    component.openNewTaskModal();
-    expect(component.isNewTask()).toBe(true);
-    expect(component.selectedTask()).toBeTruthy();
-    expect(component.selectedTask()?.title).toBe('');
-    // Server tasks still 0: 0 writes!
-    expect(component.tasks().length).toBe(0);
+  it('should ensure workspace top bar has only Atualizar and NO duplicate "+ Nova tarefa" button', () => {
+    const compiled = fixture.nativeElement as HTMLElement;
+    const topBarActions = compiled.querySelector('.top-bar-actions');
+    expect(topBarActions?.querySelector('#btn-refresh-tasks')).toBeTruthy();
+    // Verify no button with "+ Nova tarefa" inside the top-bar-actions
+    const actionButtons = topBarActions?.querySelectorAll('button');
+    expect(actionButtons?.length).toBe(1);
+    expect(actionButtons?.[0]?.id).toBe('btn-refresh-tasks');
   });
 
-  it('should create task in server only when explicitly saved', async () => {
-    component.openNewTaskModal();
-
-    await component.handleTaskSaved({
-      title: 'Tarefa salva manualmente',
-      work_mode: 'general',
-    });
-
-    expect(component.tasks().length).toBe(1);
-    expect(component.tasks()[0].title).toBe('Tarefa salva manualmente');
-    expect(component.isNewTask()).toBe(false);
-    expect(component.selectedTask()).toBeNull();
-  });
-
-  it('should filter tasks purely client-side without re-fetching from API', async () => {
+  it('should filter tasks purely client-side without re-fetching from API', () => {
     const t1: Task = {
       id: 'task-1',
+      project_id: 'p1',
       user_id: 'user',
-      title: 'Tarefa A Fazer',
+      title: 'Tarefa no Backlog',
       description: '',
-      status: 'todo',
+      status: 'backlog',
       priority: 'normal',
       due_at: null,
-      tags: [],
-      checklist: [],
-      work_mode: 'general',
-      metadata: {},
+      qa_checklist: [],
+      qa_result: 'pending',
+      qa_notes: '',
       completed_at: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -84,22 +76,29 @@ describe('TasksComponent', () => {
     const t2: Task = {
       ...t1,
       id: 'task-2',
-      title: 'Tarefa Feita',
+      title: 'Tarefa em Teste',
+      status: 'ready_for_test',
+    };
+    const t3: Task = {
+      ...t1,
+      id: 'task-3',
+      title: 'Tarefa Concluída',
       status: 'done',
     };
 
-    component.tasks.set([t1, t2]);
+    component.selectedProjectId.set('all');
+    component.allTasks.set([t1, t2, t3]);
 
-    // Initial: all 2
-    expect(component.filteredTasks().length).toBe(2);
+    // Initial: all 3
+    expect(component.filteredTasks().length).toBe(3);
 
-    // Filter 'done' in memory
-    component.setStatusFilter('done');
+    // Filter 'ready_for_test' in memory
+    component.setStatusFilter('ready_for_test');
     expect(component.filteredTasks().length).toBe(1);
     expect(component.filteredTasks()[0].id).toBe('task-2');
 
-    // Filter 'todo' in memory
-    component.setStatusFilter('todo');
+    // Filter 'backlog' in memory
+    component.setStatusFilter('backlog');
     expect(component.filteredTasks().length).toBe(1);
     expect(component.filteredTasks()[0].id).toBe('task-1');
   });
@@ -107,16 +106,16 @@ describe('TasksComponent', () => {
   it('should search tasks purely client-side without re-fetching from API', () => {
     const t1: Task = {
       id: 'task-1',
+      project_id: 'p1',
       user_id: 'user',
-      title: 'Documentar autenticação Clerk',
-      description: '',
-      status: 'todo',
+      title: 'Corrigir Kokoro',
+      description: 'Pipeline de narração',
+      status: 'backlog',
       priority: 'normal',
       due_at: null,
-      tags: ['auth'],
-      checklist: [],
-      work_mode: 'dev',
-      metadata: {},
+      qa_checklist: [],
+      qa_result: 'pending',
+      qa_notes: '',
       completed_at: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -124,31 +123,38 @@ describe('TasksComponent', () => {
     const t2: Task = {
       ...t1,
       id: 'task-2',
-      title: 'Comprar frutas',
-      tags: [],
+      title: 'Integrar Qwen local',
+      description: '',
     };
 
-    component.tasks.set([t1, t2]);
+    component.selectedProjectId.set('all');
+    component.allTasks.set([t1, t2]);
 
-    component.onSearchChange('Clerk');
+    component.onSearchChange('Kokoro');
     expect(component.filteredTasks().length).toBe(1);
     expect(component.filteredTasks()[0].id).toBe('task-1');
 
-    component.onSearchChange('frutas');
+    component.onSearchChange('narração');
+    expect(component.filteredTasks().length).toBe(1);
+    expect(component.filteredTasks()[0].id).toBe('task-1');
+
+    component.onSearchChange('Qwen');
     expect(component.filteredTasks().length).toBe(1);
     expect(component.filteredTasks()[0].id).toBe('task-2');
   });
 
-  it('should delete task with confirmation', async () => {
-    const created = await taskService.createTask({ title: 'Para deletar' });
-    component.tasks.set([created]);
+  it('should save task only when handleSaveTask is called', async () => {
+    component.openNewTaskModal();
+    expect(component.isCreatingTask()).toBe(true);
 
-    // Mock confirm dialog
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await component.handleSaveTask({
+      project_id: 'p1',
+      title: 'Nova tarefa salva manualmente',
+      status: 'backlog',
+    });
 
-    await component.handleDeleteTask(created);
-    expect(component.tasks().length).toBe(0);
-
-    confirmSpy.mockRestore();
+    expect(component.allTasks().length).toBe(1);
+    expect(component.allTasks()[0].title).toBe('Nova tarefa salva manualmente');
+    expect(component.isCreatingTask()).toBe(false);
   });
 });

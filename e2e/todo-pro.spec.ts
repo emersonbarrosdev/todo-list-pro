@@ -6,7 +6,7 @@ test.describe('TODO PRO End-to-End Application Flow', () => {
     await page.evaluate(() => localStorage.clear());
   });
 
-  test('should complete end-to-end user workflow: login, create, edit, priority, complete, filter, remove', async ({ page }) => {
+  test('should complete end-to-end user workflow: login, project, create, edit, priority, complete, filter, remove', async ({ page }) => {
     // 1. Visit Auth page
     await page.goto('/auth');
     await expect(page.locator('.brand-title')).toContainText('TODO PRO');
@@ -29,14 +29,15 @@ test.describe('TODO PRO End-to-End Application Flow', () => {
     // Wait for tasks view to load
     await expect(page.locator('.workspace-header')).toBeVisible({ timeout: 15000 });
 
-    // 4. Handle onboarding modal if displayed
-    const onboardingCard = page.locator('.onboarding-card');
-    if (await onboardingCard.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await page.locator('.mode-card').first().click();
+    // 4. Handle project onboarding modal if displayed
+    const onboardingInput = page.locator('#initial-project-name');
+    if (await onboardingInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await onboardingInput.fill('Projeto E2E Test');
+      await page.locator('#btn-confirm-onboarding').click();
     }
 
-    // 5. Open New Task modal
-    await page.locator('#btn-new-task').click();
+    // 5. Open New Task modal via header
+    await page.locator('#btn-header-new-task').click();
     const detailsSheet = page.locator('.details-sheet');
     await expect(detailsSheet).toBeVisible();
 
@@ -57,9 +58,9 @@ test.describe('TODO PRO End-to-End Application Flow', () => {
     await taskRow.click();
     await expect(detailsSheet).toBeVisible();
 
-    // 7. Edit description with markdown
-    const descTextarea = page.locator('.description-textarea');
-    await descTextarea.fill('Esta é uma **descrição importante** da tarefa com checklist.');
+    // 7. Edit description
+    const descTextarea = page.locator('.desc-textarea');
+    await descTextarea.fill('Esta é uma **descrição importante** da tarefa simplificada.');
 
     // 8. Change priority to High via pill button
     await page.locator('.pill-btn', { hasText: 'Alta' }).click();
@@ -76,20 +77,20 @@ test.describe('TODO PRO End-to-End Application Flow', () => {
     await page.locator('.btn-close').click();
     await expect(detailsSheet).toBeHidden();
 
-    // Verify badge on task row reflects High priority
-    await expect(taskRow.locator('.badge-high')).toBeVisible();
+    // Verify priority tag on task row
+    await expect(taskRow.locator('.priority-high')).toBeVisible();
 
     // 9. Change status to Done
     await taskRow.click();
     await expect(detailsSheet).toBeVisible();
-    await page.locator('.pill-btn', { hasText: 'Concluída' }).click();
+    await page.locator('.pill-btn', { hasText: 'Concluído' }).click();
     await saveBtn.click();
     await expect(saveBtn).toContainText('Salvo');
     await page.locator('.btn-close').click();
 
     // 10. Test filters (pure client-side)
-    // Filter "A fazer" should hide the completed task
-    await page.locator('.filter-pill', { hasText: 'A fazer' }).click();
+    // Filter "Backlog" should hide the completed task
+    await page.locator('.filter-pill', { hasText: 'Backlog' }).click();
     await expect(page.locator('.task-row')).toHaveCount(0);
 
     // Filter "Concluídas" should show the completed task
@@ -100,10 +101,11 @@ test.describe('TODO PRO End-to-End Application Flow', () => {
     await page.locator('.filter-pill', { hasText: 'Todas' }).click();
     await expect(page.locator('.task-row')).toHaveCount(1);
 
-    // 11. Remove task with dialog confirmation
-    page.on('dialog', (dialog) => dialog.accept());
-    const deleteBtn = page.locator('.btn-delete').first();
-    await deleteBtn.click();
+    // 11. Remove task via details sheet delete button
+    await taskRow.click();
+    await expect(detailsSheet).toBeVisible();
+    await page.locator('.btn-delete').click();
+    await expect(detailsSheet).toBeHidden();
 
     await expect(page.locator('.task-row')).toHaveCount(0);
   });
@@ -113,7 +115,6 @@ test.describe('TODO PRO End-to-End Application Flow', () => {
     await page.evaluate(() => {
       const mockUser = { id: 'mock-user-shortcuts', email: 'shortcuts@todopro.com' };
       localStorage.setItem('todo_pro_clerk_mock_user', JSON.stringify(mockUser));
-      localStorage.setItem('onboarding_done_mock-user-shortcuts', 'true');
     });
 
     await page.goto('/');

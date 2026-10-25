@@ -1,39 +1,45 @@
-import { Component, OnInit, computed, inject, signal, HostListener, ViewChild } from '@angular/core';
+import { Component, OnInit, computed, inject, signal, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { FormsModule } from '@angular/forms';
 import { HeaderComponent } from '../../shared/components/header/header.component';
 import { OnboardingComponent } from '../../shared/components/onboarding/onboarding.component';
 import { TaskDetailsComponent } from '../../shared/components/task-details/task-details.component';
 import { TaskService } from '../../core/services/task.service';
-import { AuthService } from '../../core/services/auth.service';
-import { ProfileService } from '../../core/services/profile.service';
+import { ProjectService } from '../../core/services/project.service';
 import { ToastService } from '../../core/services/toast.service';
-import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto } from '../../core/models/task.model';
+import { Task, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto } from '../../core/models/task.model';
+import { Project } from '../../core/models/project.model';
 
 @Component({
   selector: 'app-tasks',
   standalone: true,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, HeaderComponent, OnboardingComponent, TaskDetailsComponent],
+  imports: [CommonModule, FormsModule, HeaderComponent, OnboardingComponent, TaskDetailsComponent],
   template: `
     <div class="tasks-layout">
       <!-- Shell Header -->
       <app-header
+        [projects]="projects()"
+        [selectedProjectId]="selectedProjectId()"
         [searchQuery]="searchQuery()"
-        [workMode]="currentWorkMode()"
-        (searchQueryChange)="onSearchChange($event)"
+        (projectChanged)="onProjectChange($event)"
+        (newProjectClicked)="openNewProjectModal()"
+        (searchChanged)="onSearchChange($event)"
         (newTaskClicked)="openNewTaskModal()"
-        (modeToggle)="cycleWorkMode()"
       ></app-header>
 
       <!-- Main Workspace -->
       <main class="main-content">
         <div class="app-container">
-          <!-- Top Bar: Summary, Refresh, and New Task Trigger -->
+          <!-- Top Bar: Summary and Refresh Button ONLY (NO duplicate "+ Nova tarefa") -->
           <div class="workspace-header">
             <div class="workspace-top-bar">
               <div class="summary-meta">
                 <span class="summary-count">
                   <strong>{{ activeCount() }}</strong> {{ activeCount() === 1 ? 'tarefa ativa' : 'tarefas ativas' }}
+                </span>
+                <span class="summary-divider">·</span>
+                <span class="summary-test">
+                  <strong>{{ readyForTestCount() }}</strong> em teste
                 </span>
                 <span class="summary-divider">·</span>
                 <span class="summary-done">{{ doneCount() }} concluídas</span>
@@ -45,9 +51,9 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                   id="btn-refresh-tasks"
                   type="button"
                   class="btn-refresh"
-                  (click)="loadTasks()"
+                  (click)="refreshCurrentProject(true)"
                   [disabled]="isLoading()"
-                  title="Atualizar lista de tarefas do servidor"
+                  title="Recarregar tarefas do servidor"
                 >
                   <svg [class.spin]="isLoading()" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="23 4 23 10 17 10"></polyline>
@@ -56,24 +62,10 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                   </svg>
                   <span>Atualizar</span>
                 </button>
-
-                <!-- New Task Trigger Button -->
-                <button
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  (click)="openNewTaskModal()"
-                  title="Criar nova tarefa localmente (N)"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                  </svg>
-                  <span>Nova tarefa</span>
-                </button>
               </div>
             </div>
 
-            <!-- Compact Filter & Sorting Bar (100% Client-Side In-Memory) -->
+            <!-- Compact Client-Side Filter & Sorting Bar -->
             <div class="filters-bar">
               <!-- Quick Status Segmented Pills -->
               <div class="status-pills" role="tablist">
@@ -88,18 +80,26 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                 <button
                   type="button"
                   class="filter-pill"
-                  [class.active]="statusFilter() === 'todo'"
-                  (click)="setStatusFilter('todo')"
+                  [class.active]="statusFilter() === 'backlog'"
+                  (click)="setStatusFilter('backlog')"
                 >
-                  A fazer
+                  Backlog
                 </button>
                 <button
                   type="button"
                   class="filter-pill"
-                  [class.active]="statusFilter() === 'doing'"
-                  (click)="setStatusFilter('doing')"
+                  [class.active]="statusFilter() === 'in_progress'"
+                  (click)="setStatusFilter('in_progress')"
                 >
                   Em andamento
+                </button>
+                <button
+                  type="button"
+                  class="filter-pill"
+                  [class.active]="statusFilter() === 'ready_for_test'"
+                  (click)="setStatusFilter('ready_for_test')"
+                >
+                  Pronto para testar
                 </button>
                 <button
                   type="button"
@@ -111,7 +111,7 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                 </button>
               </div>
 
-              <!-- Compact Secondary Filters & Sorting Controls -->
+              <!-- Secondary Filters & Sorting (100% In-Memory) -->
               <div class="secondary-filters">
                 <!-- Priority Filter Dropdown -->
                 <select
@@ -126,19 +126,6 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                   <option value="low">Baixa</option>
                 </select>
 
-                <!-- Work Mode Filter Dropdown -->
-                <select
-                  class="select select-compact"
-                  [value]="modeFilter()"
-                  (change)="onModeFilterChange($event)"
-                  aria-label="Filtrar por modo"
-                >
-                  <option value="all">Modo: Todos</option>
-                  <option value="general">Geral</option>
-                  <option value="dev">DEV</option>
-                  <option value="qa">QA</option>
-                </select>
-
                 <!-- Sorting Dropdown -->
                 <select
                   class="select select-compact"
@@ -148,152 +135,283 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
                 >
                   <option value="recent">Mais recentes</option>
                   <option value="oldest">Mais antigas</option>
-                  <option value="due_date">Prazo mais próximo</option>
+                  <option value="due_date">Prazo</option>
                   <option value="priority">Prioridade</option>
                 </select>
               </div>
             </div>
           </div>
 
-          <!-- Tasks List Section -->
+          <!-- Tasks Sections View -->
           <div class="tasks-container">
             @if (isLoading()) {
-              <!-- Loading Skeletons -->
-              <div class="skeleton-list" aria-busy="true" aria-label="Carregando tarefas">
-                <div class="skeleton-row">
-                  <div class="skeleton-check skeleton"></div>
-                  <div class="skeleton-body">
-                    <div class="skeleton-title skeleton"></div>
-                    <div class="skeleton-tags skeleton"></div>
-                  </div>
-                </div>
-                <div class="skeleton-row">
-                  <div class="skeleton-check skeleton"></div>
-                  <div class="skeleton-body">
-                    <div class="skeleton-title skeleton"></div>
-                    <div class="skeleton-tags skeleton"></div>
-                  </div>
-                </div>
-                <div class="skeleton-row">
-                  <div class="skeleton-check skeleton"></div>
-                  <div class="skeleton-body">
-                    <div class="skeleton-title skeleton"></div>
-                    <div class="skeleton-tags skeleton"></div>
-                  </div>
-                </div>
+              <div class="skeleton-list" aria-busy="true">
+                <div class="skeleton-row skeleton"></div>
+                <div class="skeleton-row skeleton"></div>
+                <div class="skeleton-row skeleton"></div>
               </div>
             } @else if (filteredTasks().length === 0) {
               <!-- Empty State -->
               <div class="empty-state">
-                <div class="empty-icon" aria-hidden="true">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                  </svg>
-                </div>
-                <h3 class="empty-title">
-                  {{ searchQuery() ? 'Nenhuma tarefa encontrada' : 'Tudo organizado!' }}
-                </h3>
-                <p class="empty-desc">
-                  {{ searchQuery() ? 'Nenhum resultado para "' + searchQuery() + '".' : 'Crie sua primeira tarefa usando o botão acima ou pressionando N.' }}
-                </p>
-                <div class="empty-shortcuts">
-                  <button type="button" class="btn btn-secondary btn-sm" (click)="openNewTaskModal()">
-                    + Criar primeira tarefa
-                  </button>
-                  <span class="shortcut-chip"><kbd>Ctrl K</kbd> Buscar</span>
-                  <span class="shortcut-chip"><kbd>Esc</kbd> Fechar painel</span>
-                </div>
+                <div class="empty-icon">✓</div>
+                <h3 class="empty-title">Tudo organizado!</h3>
+                <p class="empty-subtitle">Nenhuma tarefa encontrada neste projeto ou com os filtros atuais.</p>
+                <button
+                  id="btn-empty-new-task"
+                  type="button"
+                  class="btn btn-primary"
+                  (click)="openNewTaskModal()"
+                >
+                  + Criar primeira tarefa
+                </button>
               </div>
-            } @else {
-              <!-- Dense Task Items List -->
-              <ul class="task-list" role="list">
+            } @else if (statusFilter() !== 'all') {
+              <!-- Single Filtered List -->
+              <div class="task-list">
                 @for (task of filteredTasks(); track task.id) {
-                  <li
+                  <div
                     class="task-row"
-                    [class.completed]="task.status === 'done'"
-                    (click)="selectTask(task)"
-                    (keydown.enter)="selectTask(task)"
-                    (keydown.space)="$event.preventDefault(); selectTask(task)"
-                    role="button"
-                    tabindex="0"
-                    [attr.aria-label]="'Abrir detalhes de: ' + task.title"
+                    [class.task-done]="task.status === 'done'"
+                    (click)="openTaskDetails(task)"
                   >
-                    <!-- Status Indicator Icon -->
-                    <div class="status-dot-wrapper">
-                      @if (task.status === 'done') {
-                        <span class="status-indicator-icon done">✓</span>
-                      } @else if (task.status === 'doing') {
-                        <span class="status-indicator-icon doing">●</span>
-                      } @else {
-                        <span class="status-indicator-icon todo">○</span>
+                    <div class="task-left">
+                      <span
+                        class="status-dot"
+                        [ngClass]="'status-' + task.status"
+                        [title]="getStatusLabel(task.status)"
+                      ></span>
+                      <span class="task-title">{{ task.title }}</span>
+                    </div>
+
+                    <div class="task-right">
+                      @if (selectedProjectId() === 'all' && task.project_name) {
+                        <span class="project-tag">{{ task.project_name }}</span>
+                      }
+                      @if (task.priority !== 'normal') {
+                        <span class="priority-tag" [ngClass]="'priority-' + task.priority">
+                          {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
+                        </span>
+                      }
+                      @if (task.due_at) {
+                        <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
+                          {{ formatDueDate(task.due_at) }}
+                        </span>
                       }
                     </div>
-
-                    <!-- Content -->
-                    <div class="task-info">
-                      <span class="task-title">{{ task.title }}</span>
-
-                      <!-- Badges metadata -->
-                      <div class="task-badges">
-                        @if (task.work_mode === 'dev' && task.metadata.type) {
-                          <span class="badge badge-dev">DEV · {{ task.metadata.type }}</span>
-                        }
-                        @if (task.work_mode === 'qa' && task.metadata.type) {
-                          <span class="badge badge-qa">QA · {{ task.metadata.type }}</span>
-                        }
-                        @if (task.priority !== 'normal') {
-                          <span class="badge" [ngClass]="'badge-' + task.priority">
-                            {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
-                          </span>
-                        }
-                        @if (task.due_at) {
-                          <span class="badge badge-date" [class.overdue]="isOverdue(task.due_at, task.status)">
-                            📅 {{ formatDate(task.due_at) }}
-                          </span>
-                        }
-                        @for (tag of (task.tags || []).slice(0, 3); track tag) {
-                          <span class="badge">#{{ tag }}</span>
-                        }
-                      </div>
-                    </div>
-
-                    <!-- Row Actions -->
-                    <div class="task-actions" (click)="$event.stopPropagation()">
-                      <button
-                        type="button"
-                        class="btn-delete"
-                        [title]="'Remover ' + task.title"
-                        (click)="handleDeleteTask(task)"
-                        [attr.aria-label]="'Remover ' + task.title"
-                      >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <polyline points="3 6 5 6 21 6"></polyline>
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        </svg>
-                      </button>
-                    </div>
-                  </li>
+                  </div>
                 }
-              </ul>
+              </div>
+            } @else {
+              <!-- Sections: BACKLOG, EM ANDAMENTO, PRONTO PARA TESTAR, CONCLUÍDO -->
+              <div class="workflow-sections">
+                <!-- Section 1: BACKLOG -->
+                <div class="workflow-section">
+                  <div class="section-title-bar">
+                    <span class="section-dot dot-backlog"></span>
+                    <span class="section-heading">BACKLOG</span>
+                    <span class="section-counter">({{ backlogTasks().length }})</span>
+                  </div>
+                  <div class="section-tasks">
+                    @for (task of backlogTasks(); track task.id) {
+                      <div class="task-row" (click)="openTaskDetails(task)">
+                        <div class="task-left">
+                          <span class="task-title">{{ task.title }}</span>
+                        </div>
+                        <div class="task-right">
+                          @if (selectedProjectId() === 'all' && task.project_name) {
+                            <span class="project-tag">{{ task.project_name }}</span>
+                          }
+                          @if (task.priority !== 'normal') {
+                            <span class="priority-tag" [ngClass]="'priority-' + task.priority">
+                              {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
+                            </span>
+                          }
+                          @if (task.due_at) {
+                            <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
+                              {{ formatDueDate(task.due_at) }}
+                            </span>
+                          }
+                        </div>
+                      </div>
+                    }
+                    @if (backlogTasks().length === 0) {
+                      <div class="section-empty">Nenhuma tarefa no backlog</div>
+                    }
+                  </div>
+                </div>
+
+                <!-- Section 2: EM ANDAMENTO -->
+                <div class="workflow-section">
+                  <div class="section-title-bar">
+                    <span class="section-dot dot-in-progress"></span>
+                    <span class="section-heading">EM ANDAMENTO</span>
+                    <span class="section-counter">({{ inProgressTasks().length }})</span>
+                  </div>
+                  <div class="section-tasks">
+                    @for (task of inProgressTasks(); track task.id) {
+                      <div class="task-row" (click)="openTaskDetails(task)">
+                        <div class="task-left">
+                          <span class="task-title">{{ task.title }}</span>
+                        </div>
+                        <div class="task-right">
+                          @if (selectedProjectId() === 'all' && task.project_name) {
+                            <span class="project-tag">{{ task.project_name }}</span>
+                          }
+                          @if (task.priority !== 'normal') {
+                            <span class="priority-tag" [ngClass]="'priority-' + task.priority">
+                              {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
+                            </span>
+                          }
+                          @if (task.due_at) {
+                            <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
+                              {{ formatDueDate(task.due_at) }}
+                            </span>
+                          }
+                        </div>
+                      </div>
+                    }
+                    @if (inProgressTasks().length === 0) {
+                      <div class="section-empty">Nenhuma tarefa em andamento</div>
+                    }
+                  </div>
+                </div>
+
+                <!-- Section 3: PRONTO PARA TESTAR -->
+                <div class="workflow-section">
+                  <div class="section-title-bar">
+                    <span class="section-dot dot-ready-for-test"></span>
+                    <span class="section-heading">PRONTO PARA TESTAR</span>
+                    <span class="section-counter">({{ readyForTestTasks().length }})</span>
+                  </div>
+                  <div class="section-tasks">
+                    @for (task of readyForTestTasks(); track task.id) {
+                      <div class="task-row highlight-qa" (click)="openTaskDetails(task)">
+                        <div class="task-left">
+                          <span class="qa-mini-badge" [ngClass]="'qa-' + task.qa_result">
+                            {{ task.qa_result === 'approved' ? 'Aprovado' : task.qa_result === 'rejected' ? 'Reprovado' : 'QA' }}
+                          </span>
+                          <span class="task-title">{{ task.title }}</span>
+                        </div>
+                        <div class="task-right">
+                          @if (selectedProjectId() === 'all' && task.project_name) {
+                            <span class="project-tag">{{ task.project_name }}</span>
+                          }
+                          @if (task.priority !== 'normal') {
+                            <span class="priority-tag" [ngClass]="'priority-' + task.priority">
+                              {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
+                            </span>
+                          }
+                          @if (task.due_at) {
+                            <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
+                              {{ formatDueDate(task.due_at) }}
+                            </span>
+                          }
+                        </div>
+                      </div>
+                    }
+                    @if (readyForTestTasks().length === 0) {
+                      <div class="section-empty">Nenhuma tarefa pronta para testar</div>
+                    }
+                  </div>
+                </div>
+
+                <!-- Section 4: CONCLUÍDO -->
+                <div class="workflow-section">
+                  <div class="section-title-bar">
+                    <span class="section-dot dot-done"></span>
+                    <span class="section-heading">CONCLUÍDO</span>
+                    <span class="section-counter">({{ doneTasks().length }})</span>
+                  </div>
+                  <div class="section-tasks">
+                    @for (task of doneTasks(); track task.id) {
+                      <div class="task-row task-done" (click)="openTaskDetails(task)">
+                        <div class="task-left">
+                          <span class="task-title">{{ task.title }}</span>
+                        </div>
+                        <div class="task-right">
+                          @if (selectedProjectId() === 'all' && task.project_name) {
+                            <span class="project-tag">{{ task.project_name }}</span>
+                          }
+                        </div>
+                      </div>
+                    }
+                    @if (doneTasks().length === 0) {
+                      <div class="section-empty">Nenhuma tarefa concluída</div>
+                    }
+                  </div>
+                </div>
+              </div>
             }
           </div>
         </div>
       </main>
 
-      <!-- First login Onboarding modal -->
-      @if (showOnboarding()) {
-        <app-onboarding (completed)="handleOnboardingComplete($event)"></app-onboarding>
+      <!-- Task Details Sheet (Manual Save, Zero Autosave) -->
+      @if (selectedTask() || isCreatingTask()) {
+        <app-task-details
+          [task]="selectedTask()"
+          [projects]="projects()"
+          [defaultProjectId]="selectedProjectId() === 'all' ? (projects()[0]?.id || '') : selectedProjectId()"
+          [isNew]="isCreatingTask()"
+          (save)="handleSaveTask($event)"
+          (delete)="handleDeleteTask($event)"
+          (close)="closeTaskDetails()"
+        ></app-task-details>
       }
 
-      <!-- Lateral Details Sheet for Editing Existing or New Task -->
-      @if (selectedTask(); as currentSelected) {
-        <app-task-details
-          [task]="currentSelected"
-          [isNew]="isNewTask()"
-          (taskSaved)="handleTaskSaved($event)"
-          (close)="closeDetails()"
-        ></app-task-details>
+      <!-- New Project Modal -->
+      @if (showNewProjectModal()) {
+        <div class="modal-backdrop" (click)="showNewProjectModal.set(false)">
+          <div class="modal-card" (click)="$event.stopPropagation()">
+            <h3 class="modal-title">+ Novo Projeto</h3>
+            <p class="modal-desc">Crie um projeto pessoal para organizar suas tarefas.</p>
+
+            <div class="modal-form">
+              <label class="input-label" for="new-project-name">Nome do projeto</label>
+              <input
+                id="new-project-name"
+                type="text"
+                class="input"
+                [(ngModel)]="newProjectName"
+                placeholder="Ex: Narrativa Studio, TODO PRO..."
+                autofocus
+              />
+
+              <label class="input-label" for="new-project-desc">Descrição (opcional)</label>
+              <input
+                id="new-project-desc"
+                type="text"
+                class="input"
+                [(ngModel)]="newProjectDescription"
+                placeholder="Ex: Estúdio de áudio e narração..."
+              />
+
+              <div class="modal-actions">
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  (click)="showNewProjectModal.set(false)"
+                >
+                  Cancelar
+                </button>
+                <button
+                  id="btn-create-project-submit"
+                  type="button"
+                  class="btn btn-primary"
+                  [disabled]="!newProjectName.trim() || isCreatingProject()"
+                  (click)="handleCreateProject()"
+                >
+                  {{ isCreatingProject() ? 'Criando...' : 'Criar projeto' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- Onboarding Modal if user has zero projects -->
+      @if (showOnboarding()) {
+        <app-onboarding (projectCreated)="handleOnboardingProject($event)"></app-onboarding>
       }
     </div>
   `,
@@ -307,14 +425,17 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
 
     .main-content {
       flex: 1;
-      padding: 1.75rem 0 3rem;
+      padding: 1.5rem 0 3rem;
+    }
+
+    .app-container {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 1.25rem;
     }
 
     .workspace-header {
       margin-bottom: 1.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
     }
 
     .workspace-top-bar {
@@ -322,199 +443,234 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
+      margin-bottom: 1rem;
     }
 
     .summary-meta {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      font-size: 0.8125rem;
+      gap: 0.65rem;
+      font-size: 0.875rem;
       color: var(--text-secondary);
     }
 
-    .summary-count strong {
-      color: var(--text);
+    .summary-meta strong {
+      color: #FFFFFF;
     }
 
     .summary-divider {
       color: var(--text-muted);
     }
 
-    .summary-done {
-      color: var(--text-muted);
+    .summary-test strong {
+      color: #FCD34D;
     }
 
-    .top-bar-actions {
-      display: flex;
-      align-items: center;
-      gap: 0.65rem;
+    .summary-done {
+      color: #6EE7B7;
     }
 
     .btn-refresh {
       display: inline-flex;
       align-items: center;
-      gap: 0.35rem;
-      padding: 0.4rem 0.65rem;
-      font-size: 0.75rem;
-      font-weight: 500;
-      color: var(--text-secondary);
-      background: var(--surface);
+      gap: 0.45rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: var(--radius-sm);
+      background: transparent;
       border: 1px solid var(--border);
-      border-radius: var(--radius-xs);
+      color: var(--text-secondary);
+      font-size: 0.8125rem;
+      font-weight: 500;
       cursor: pointer;
       transition: all var(--transition-fast);
     }
 
-    .btn-refresh:hover:not(:disabled) {
-      color: var(--text);
+    .btn-refresh:hover {
       background: var(--surface-hover);
+      color: var(--text);
       border-color: var(--text-muted);
     }
 
     .btn-refresh:disabled {
       opacity: 0.6;
-      cursor: not-allowed;
+      cursor: wait;
     }
 
     .spin {
       animation: spin 0.8s linear infinite;
     }
 
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* Filters Bar */
     .filters-bar {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
       gap: 0.75rem;
-      padding: 0.25rem 0;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border);
     }
 
     .status-pills {
       display: flex;
-      align-items: center;
       gap: 0.35rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 0.25rem;
+      overflow-x: auto;
     }
 
     .filter-pill {
-      padding: 0.35rem 0.65rem;
-      font-size: 0.8125rem;
-      font-weight: 500;
+      padding: 0.3rem 0.7rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: var(--surface-secondary);
+      border: 1px solid var(--border);
       color: var(--text-secondary);
-      border-radius: var(--radius-xs);
-      transition: all var(--transition-fast);
-      background: transparent;
-      border: none;
       cursor: pointer;
+      white-space: nowrap;
+      transition: all var(--transition-fast);
     }
 
     .filter-pill:hover {
+      background: var(--surface-hover);
       color: var(--text);
     }
 
     .filter-pill.active {
-      background: var(--surface-hover);
-      color: var(--text);
-      font-weight: 600;
-      box-shadow: var(--shadow-sm);
+      background: rgba(139, 92, 246, 0.2);
+      border-color: var(--primary);
+      color: #C4B5FD;
     }
 
     .secondary-filters {
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      flex-wrap: wrap;
     }
 
-    .select-compact {
-      width: auto;
-      padding: 0.35rem 0.65rem;
-      font-size: 0.8125rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-xs);
-      color: var(--text-secondary);
-      cursor: pointer;
-    }
-
-    .select-compact:focus {
-      border-color: var(--border-focus);
-      color: var(--text);
-    }
-
-    .tasks-container {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 0.5rem;
-      box-shadow: var(--shadow-md);
-    }
-
-    .task-list {
-      list-style: none;
+    /* Workflow Sections: BACKLOG, EM ANDAMENTO, PRONTO PARA TESTAR, CONCLUÍDO */
+    .workflow-sections {
       display: flex;
       flex-direction: column;
-      gap: 2px;
-      margin: 0;
-      padding: 0;
+      gap: 1.5rem;
+    }
+
+    .workflow-section {
+      background: #14141E;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .section-title-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.65rem 1rem;
+      background: #171725;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-heading {
+      font-size: 0.8125rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #FFFFFF;
+    }
+
+    .section-counter {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .section-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .dot-backlog { background: #94A3B8; }
+    .dot-in-progress { background: #60A5FA; }
+    .dot-ready-for-test { background: #F59E0B; }
+    .dot-done { background: #10B981; }
+
+    .section-tasks {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .section-empty {
+      padding: 1.25rem 1rem;
+      text-align: center;
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+    }
+
+    /* Compact Task Rows */
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
     }
 
     .task-row {
       display: flex;
       align-items: center;
-      gap: 0.85rem;
-      padding: 0.75rem 0.85rem;
-      border-radius: var(--radius-sm);
-      transition: background var(--transition-fast);
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.65rem 1rem;
+      background: #14141E;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
       cursor: pointer;
+      transition: background var(--transition-fast);
+    }
+
+    .task-row:last-child {
+      border-bottom: none;
     }
 
     .task-row:hover {
-      background: var(--surface-hover);
+      background: #181827;
     }
 
-    .status-dot-wrapper {
-      width: 20px;
-      height: 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.875rem;
-      flex-shrink: 0;
+    .task-row.highlight-qa {
+      background: rgba(245, 158, 11, 0.03);
     }
 
-    .status-indicator-icon.done {
-      color: #4ADE80;
-      font-weight: 700;
+    .task-row.highlight-qa:hover {
+      background: rgba(245, 158, 11, 0.06);
     }
 
-    .status-indicator-icon.doing {
-      color: #60A5FA;
-      font-size: 0.75rem;
-    }
-
-    .status-indicator-icon.todo {
-      color: var(--text-muted);
-    }
-
-    .task-row.completed .task-title {
+    .task-row.task-done .task-title {
       text-decoration: line-through;
       color: var(--text-muted);
     }
 
-    .task-info {
-      flex: 1;
-      min-width: 0;
+    .task-left {
       display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
+      align-items: center;
+      gap: 0.75rem;
+      overflow: hidden;
     }
 
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .status-backlog { background: #94A3B8; }
+    .status-in_progress { background: #60A5FA; }
+    .status-ready_for_test { background: #F59E0B; }
+    .status-done { background: #10B981; }
+
     .task-title {
-      font-size: 0.9375rem;
+      font-size: 0.875rem;
       font-weight: 500;
       color: var(--text);
       overflow: hidden;
@@ -522,414 +678,488 @@ import { Task, WorkMode, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto 
       white-space: nowrap;
     }
 
-    .task-badges {
+    .task-right {
       display: flex;
       align-items: center;
-      flex-wrap: wrap;
-      gap: 0.4rem;
+      gap: 0.5rem;
+      flex-shrink: 0;
     }
 
-    .badge-date.overdue {
-      color: var(--danger);
-      background: var(--danger-soft);
+    .project-tag {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      background: rgba(139, 92, 246, 0.12);
+      color: #C4B5FD;
+      border: 1px solid rgba(139, 92, 246, 0.25);
+    }
+
+    .priority-tag {
+      font-size: 0.6875rem;
+      font-weight: 600;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+    }
+
+    .priority-high {
+      background: rgba(239, 68, 68, 0.15);
+      color: #FCA5A5;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .priority-low {
+      background: rgba(107, 114, 128, 0.15);
+      color: #9CA3AF;
+      border: 1px solid var(--border);
+    }
+
+    .due-tag {
+      font-size: 0.6875rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      background: var(--surface-secondary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+
+    .due-tag.overdue {
+      background: rgba(239, 68, 68, 0.15);
+      color: #F87171;
       border-color: rgba(239, 68, 68, 0.3);
     }
 
-    .task-actions {
-      display: flex;
-      align-items: center;
-      opacity: 0;
-      transition: opacity var(--transition-fast);
+    .qa-mini-badge {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      flex-shrink: 0;
     }
 
-    .task-row:hover .task-actions {
-      opacity: 1;
+    .qa-mini-badge.qa-pending {
+      background: rgba(245, 158, 11, 0.2);
+      color: #FCD34D;
+      border: 1px solid rgba(245, 158, 11, 0.4);
     }
 
-    .btn-delete {
-      width: 28px;
-      height: 28px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: var(--radius-xs);
-      color: var(--text-muted);
-      transition: all var(--transition-fast);
-      background: transparent;
-      border: none;
-      cursor: pointer;
+    .qa-mini-badge.qa-approved {
+      background: rgba(16, 185, 129, 0.2);
+      color: #6EE7B7;
+      border: 1px solid rgba(16, 185, 129, 0.4);
     }
 
-    .btn-delete:hover {
-      background: var(--danger-soft);
-      color: var(--danger);
+    .qa-mini-badge.qa-rejected {
+      background: rgba(239, 68, 68, 0.2);
+      color: #FCA5A5;
+      border: 1px solid rgba(239, 68, 68, 0.4);
     }
 
-    .task-row:focus-visible {
-      outline: 2px solid var(--primary);
-      outline-offset: -2px;
-    }
-
+    /* Empty State */
     .empty-state {
-      padding: 3.5rem 1.5rem;
       text-align: center;
+      padding: 3.5rem 1.5rem;
+      background: #14141E;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
       display: flex;
       flex-direction: column;
       align-items: center;
+      gap: 0.65rem;
     }
 
     .empty-icon {
-      width: 48px;
-      height: 48px;
-      margin-bottom: 1rem;
+      width: 44px;
+      height: 44px;
       border-radius: 50%;
-      background: var(--surface-secondary);
-      border: 1px solid var(--border);
+      background: rgba(16, 185, 129, 0.15);
+      color: #10B981;
+      font-size: 1.25rem;
       display: flex;
       align-items: center;
       justify-content: center;
-      color: var(--primary);
-      box-shadow: 0 0 16px rgba(139, 92, 246, 0.15);
+      margin-bottom: 0.25rem;
     }
 
     .empty-title {
       font-size: 1.125rem;
-      font-weight: 600;
-      margin-bottom: 0.35rem;
-      color: var(--text);
+      font-weight: 700;
+      color: #FFFFFF;
     }
 
-    .empty-desc {
+    .empty-subtitle {
       font-size: 0.875rem;
       color: var(--text-muted);
-      max-width: 380px;
-      margin: 0 auto 1.25rem;
-      line-height: 1.5;
+      max-width: 400px;
+      margin-bottom: 0.5rem;
     }
 
-    .empty-shortcuts {
+    /* Modal Backdrop & Card */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
+      padding: 1.25rem;
     }
 
-    .shortcut-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      padding: 0.25rem 0.6rem;
-      background: var(--surface-secondary);
+    .modal-card {
+      width: 100%;
+      max-width: 440px;
+      background: #161622;
       border: 1px solid var(--border);
-      border-radius: var(--radius-xs);
+      border-radius: var(--radius-lg);
+      padding: 1.75rem;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+      animation: modalScale 0.15s ease-out;
+    }
+
+    .modal-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #FFFFFF;
+      margin-bottom: 0.25rem;
+    }
+
+    .modal-desc {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      margin-bottom: 1.25rem;
+    }
+
+    .modal-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+
+    .input-label {
       font-size: 0.75rem;
-      color: var(--text-secondary);
+      font-weight: 600;
+      color: var(--text);
     }
 
-    .shortcut-chip kbd {
-      padding: 0.1rem 0.35rem;
-      background: var(--surface-hover);
-      border: 1px solid var(--border);
-      border-radius: 3px;
-      font-size: 0.6875rem;
-      color: var(--text);
-      font-family: inherit;
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      margin-top: 0.75rem;
     }
 
     .skeleton-list {
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
-      padding: 0.5rem;
     }
 
     .skeleton-row {
-      display: flex;
-      align-items: center;
-      gap: 0.85rem;
-      padding: 0.75rem 0.85rem;
+      height: 44px;
       border-radius: var(--radius-sm);
     }
 
-    .skeleton-check {
-      width: 18px;
-      height: 18px;
-      border-radius: var(--radius-xs);
-      flex-shrink: 0;
+    @keyframes modalScale {
+      from { transform: scale(0.96); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
     }
 
-    .skeleton-body {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
+    @media (max-width: 640px) {
+      .filters-bar {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .secondary-filters {
+        width: 100%;
+        justify-content: space-between;
+      }
     }
-
-    .skeleton-title {
-      height: 14px;
-      width: 45%;
-      border-radius: var(--radius-xs);
-    }
-
-    .skeleton-tags {
-      height: 10px;
-      width: 25%;
-      border-radius: var(--radius-xs);
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-  `]
+  `],
 })
 export class TasksComponent implements OnInit {
-  @ViewChild(HeaderComponent) headerComp?: HeaderComponent;
-
   private taskService = inject(TaskService);
-  private auth = inject(AuthService);
-  private profileService = inject(ProfileService);
+  private projectService = inject(ProjectService);
   private toast = inject(ToastService);
 
-  tasks = signal<Task[]>([]);
-  isLoading = signal<boolean>(true);
-  showOnboarding = signal<boolean>(false);
-  currentWorkMode = signal<WorkMode>('general');
-  searchQuery = signal<string>('');
+  // Projects state
+  projects = signal<Project[]>([]);
+  selectedProjectId = signal<string>('all');
 
+  // Tasks state
+  allTasks = signal<Task[]>([]);
+  taskCache = new Map<string, Task[]>(); // In-memory session cache
+
+  // UI state
+  isLoading = signal(true);
+  searchQuery = signal('');
   statusFilter = signal<TaskStatus | 'all'>('all');
   priorityFilter = signal<TaskPriority | 'all'>('all');
-  modeFilter = signal<WorkMode | 'all'>('all');
   sortBy = signal<'recent' | 'oldest' | 'due_date' | 'priority'>('recent');
 
   selectedTask = signal<Task | null>(null);
-  isNewTask = signal<boolean>(false);
+  isCreatingTask = signal(false);
 
-  // Pure client-side computed filtering & sorting over in-memory tasks
-  filteredTasks = computed(() => {
-    return this.taskService.applyFilters(this.tasks(), {
+  showNewProjectModal = signal(false);
+  newProjectName = '';
+  newProjectDescription = '';
+  isCreatingProject = signal(false);
+
+  showOnboarding = signal(false);
+
+  // Filtered tasks computed purely in memory (ZERO HTTP calls on search/filter/sort)
+  readonly filteredTasks = computed(() => {
+    return this.taskService.applyFilters(this.allTasks(), {
+      projectId: this.selectedProjectId(),
       status: this.statusFilter(),
       priority: this.priorityFilter(),
-      workMode: this.modeFilter(),
       searchQuery: this.searchQuery(),
       sortBy: this.sortBy(),
     });
   });
 
-  totalCount = computed(() => this.tasks().length);
-  activeCount = computed(() => this.tasks().filter((t) => t.status !== 'done').length);
-  doneCount = computed(() => this.tasks().filter((t) => t.status === 'done').length);
+  // Section groupings computed in memory
+  readonly backlogTasks = computed(() =>
+    this.filteredTasks().filter((t) => t.status === 'backlog')
+  );
 
-  @HostListener('window:keydown', ['$event'])
-  handleGlobalShortcuts(event: KeyboardEvent) {
-    const target = event.target as HTMLElement | null;
-    const isTyping =
-      target &&
-      (target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable);
+  readonly inProgressTasks = computed(() =>
+    this.filteredTasks().filter((t) => t.status === 'in_progress')
+  );
 
-    // Ctrl+K or Cmd+K: Focus search
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-      event.preventDefault();
-      this.headerComp?.focusSearch();
-      return;
-    }
+  readonly readyForTestTasks = computed(() =>
+    this.filteredTasks().filter((t) => t.status === 'ready_for_test')
+  );
 
-    // N: New task (only if not typing in form)
-    if (!isTyping && (event.key === 'n' || event.key === 'N') && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      this.openNewTaskModal();
-      return;
-    }
+  readonly doneTasks = computed(() =>
+    this.filteredTasks().filter((t) => t.status === 'done')
+  );
+
+  // Summary counts
+  readonly totalCount = computed(() => this.allTasks().length);
+  readonly activeCount = computed(
+    () => this.allTasks().filter((t) => t.status === 'backlog' || t.status === 'in_progress').length
+  );
+  readonly readyForTestCount = computed(
+    () => this.allTasks().filter((t) => t.status === 'ready_for_test').length
+  );
+  readonly doneCount = computed(
+    () => this.allTasks().filter((t) => t.status === 'done').length
+  );
+
+  async ngOnInit(): Promise<void> {
+    await this.loadInitialData();
   }
 
-  async ngOnInit() {
-    // 1 single initial profile check + 1 single initial tasks load
-    await this.checkUserProfile();
-    await this.loadTasks();
-  }
-
-  async checkUserProfile() {
-    try {
-      const profile = await this.profileService.getProfile();
-      const user = this.auth.currentUser();
-      const onboardingDone = user ? localStorage.getItem(`onboarding_done_${user.id}`) : 'true';
-      if (!onboardingDone && (!profile || !profile.work_mode)) {
-        this.showOnboarding.set(true);
-      } else if (profile?.work_mode) {
-        this.currentWorkMode.set(profile.work_mode);
-      }
-    } catch {
-      // Local fallback
-    }
-  }
-
-  async handleOnboardingComplete(mode: WorkMode) {
-    this.currentWorkMode.set(mode);
-    this.showOnboarding.set(false);
-    const user = this.auth.currentUser();
-    if (user) {
-      localStorage.setItem(`onboarding_done_${user.id}`, 'true');
-    }
-    try {
-      await this.profileService.setWorkMode(mode);
-      this.toast.success(`Modo ${mode.toUpperCase()} ativado com sucesso!`);
-    } catch {
-      // ignore
-    }
-  }
-
-  async cycleWorkMode() {
-    const modes: WorkMode[] = ['general', 'dev', 'qa'];
-    const nextIdx = (modes.indexOf(this.currentWorkMode()) + 1) % modes.length;
-    const nextMode = modes[nextIdx];
-    this.currentWorkMode.set(nextMode);
-    try {
-      await this.profileService.setWorkMode(nextMode);
-    } catch {
-      // ignore
-    }
-    this.toast.info(`Alternado para o modo ${nextMode.toUpperCase()}`);
-  }
-
-  /**
-   * Loads tasks from the D1 server.
-   * Called only on initial startup or when user clicks 'Atualizar'.
-   */
-  async loadTasks() {
+  async loadInitialData(): Promise<void> {
     this.isLoading.set(true);
     try {
-      const data = await this.taskService.getTasks();
-      this.tasks.set(data);
+      // 1. Fetch user projects (1 GET request)
+      const projectList = await this.projectService.getProjects();
+      this.projects.set(projectList);
+
+      if (projectList.length === 0) {
+        this.showOnboarding.set(true);
+        this.isLoading.set(false);
+        return;
+      }
+
+      // Default to first project if available
+      const defaultProj = projectList[0];
+      this.selectedProjectId.set(defaultProj.id);
+
+      // 2. Fetch tasks for current project (1 GET request)
+      await this.loadTasksForProject(defaultProj.id);
     } catch (err: any) {
-      this.toast.error(err.message || 'Erro ao carregar tarefas.');
+      this.toast.error(err.message || 'Erro ao carregar dados do servidor.');
     } finally {
       this.isLoading.set(false);
     }
   }
 
-  // Pure in-memory signal updates without server re-fetching
-  setStatusFilter(status: TaskStatus | 'all') {
-    this.statusFilter.set(status);
-  }
-
-  onPriorityFilterChange(event: Event) {
-    const select = event.target as HTMLSelectElement;
-    this.priorityFilter.set(select.value as TaskPriority | 'all');
-  }
-
-  onModeFilterChange(event: Event) {
-    const select = event.target as HTMLSelectElement;
-    this.modeFilter.set(select.value as WorkMode | 'all');
-  }
-
-  onSortByChange(event: Event) {
-    const select = event.target as HTMLSelectElement;
-    this.sortBy.set(select.value as any);
-  }
-
-  onSearchChange(query: string) {
-    this.searchQuery.set(query);
-  }
-
-  /**
-   * Opens local empty form for a new task.
-   * Zero network calls, zero writes to D1 until user explicitly saves.
-   */
-  openNewTaskModal() {
-    const blankTask: Task = {
-      id: '',
-      user_id: this.auth.currentUser()?.id || 'guest',
-      title: '',
-      description: '',
-      status: 'todo',
-      priority: 'normal',
-      due_at: null,
-      tags: [],
-      checklist: [],
-      work_mode: this.currentWorkMode(),
-      metadata: {},
-      completed_at: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    this.isNewTask.set(true);
-    this.selectedTask.set(blankTask);
-  }
-
-  selectTask(task: Task) {
-    this.isNewTask.set(false);
-    this.selectedTask.set(task);
-  }
-
-  closeDetails() {
-    this.selectedTask.set(null);
-    this.isNewTask.set(false);
-  }
-
-  /**
-   * Handles explicit save from TaskDetailsComponent.
-   * If new task: executes POST /api/tasks once.
-   * If existing task: executes PUT /api/tasks/:id once.
-   */
-  async handleTaskSaved(payload: UpdateTaskDto | CreateTaskDto) {
-    if (this.isNewTask()) {
-      try {
-        const created = await this.taskService.createTask(payload as CreateTaskDto);
-        this.tasks.update((curr) => [created, ...curr]);
-        this.selectedTask.set(null);
-        this.isNewTask.set(false);
-        this.toast.success('Tarefa criada com sucesso!');
-      } catch (err: any) {
-        this.toast.error(err.message || 'Erro ao criar tarefa.');
-        throw err;
-      }
-    } else {
-      const current = this.selectedTask();
-      if (!current?.id) return;
-      try {
-        const updated = await this.taskService.updateTask(current.id, payload as UpdateTaskDto);
-        this.tasks.update((curr) => curr.map((t) => (t.id === updated.id ? updated : t)));
-        this.selectedTask.set(updated);
-        this.toast.success('Alterações salvas no servidor.');
-      } catch (err: any) {
-        this.toast.error(err.message || 'Erro ao salvar alterações.');
-        throw err;
-      }
-    }
-  }
-
-  /**
-   * Deletes task upon explicit user confirmation.
-   * Executes exactly 1 DELETE request.
-   */
-  async handleDeleteTask(task: Task) {
-    if (!confirm(`Tem certeza que deseja excluir "${task.title}" permanentemente?`)) {
+  async loadTasksForProject(projectId: string, forceRefresh = false): Promise<void> {
+    // Check in-memory session cache first to save requests
+    if (!forceRefresh && this.taskCache.has(projectId)) {
+      this.allTasks.set(this.taskCache.get(projectId)!);
       return;
     }
 
-    if (this.selectedTask()?.id === task.id) {
-      this.closeDetails();
-    }
-
     try {
-      await this.taskService.deleteTask(task.id);
-      this.tasks.update((curr) => curr.filter((t) => t.id !== task.id));
-      this.toast.success('Tarefa removida com sucesso.');
+      const data = await this.taskService.getTasks(projectId);
+      this.allTasks.set(data);
+      this.taskCache.set(projectId, data);
     } catch (err: any) {
-      this.toast.error(err.message || 'Erro ao excluir tarefa.');
+      this.toast.error(err.message || 'Erro ao carregar tarefas.');
     }
   }
 
-  isOverdue(dueAt: string | null, status: TaskStatus): boolean {
-    if (!dueAt || status === 'done') return false;
-    return new Date(dueAt).getTime() < Date.now();
+  async onProjectChange(projectId: string): Promise<void> {
+    this.selectedProjectId.set(projectId);
+    this.isLoading.set(true);
+    await this.loadTasksForProject(projectId);
+    this.isLoading.set(false);
   }
 
-  formatDate(dateStr: string): string {
-    const d = new Date(dateStr);
-    return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+  async refreshCurrentProject(force = true): Promise<void> {
+    this.isLoading.set(true);
+    this.taskCache.clear(); // Invalidate cache on explicit user request
+    const projectList = await this.projectService.getProjects();
+    this.projects.set(projectList);
+    await this.loadTasksForProject(this.selectedProjectId(), force);
+    this.isLoading.set(false);
+    this.toast.info('Tarefas atualizadas com sucesso.');
+  }
+
+  // Client-Side Search & Filter methods (ZERO requests)
+  onSearchChange(query: string): void {
+    this.searchQuery.set(query);
+  }
+
+  setStatusFilter(status: TaskStatus | 'all'): void {
+    this.statusFilter.set(status);
+  }
+
+  onPriorityFilterChange(event: Event): void {
+    const val = (event.target as HTMLSelectElement).value as TaskPriority | 'all';
+    this.priorityFilter.set(val);
+  }
+
+  onSortByChange(event: Event): void {
+    const val = (event.target as HTMLSelectElement).value as any;
+    this.sortBy.set(val);
+  }
+
+  // Task creation and editing (Manual save, 1 request ONLY upon save)
+  openNewTaskModal(): void {
+    this.selectedTask.set(null);
+    this.isCreatingTask.set(true);
+  }
+
+  openTaskDetails(task: Task): void {
+    this.selectedTask.set(task);
+    this.isCreatingTask.set(false);
+  }
+
+  closeTaskDetails(): void {
+    this.selectedTask.set(null);
+    this.isCreatingTask.set(false);
+  }
+
+  async handleSaveTask(payload: any): Promise<void> {
+    try {
+      if (this.isCreatingTask()) {
+        const created = await this.taskService.createTask(payload as CreateTaskDto);
+        this.allTasks.update((list) => [created, ...list]);
+        this.toast.success('Tarefa criada com sucesso!');
+      } else if (this.selectedTask()) {
+        const updated = await this.taskService.updateTask(
+          this.selectedTask()!.id,
+          payload as UpdateTaskDto
+        );
+        this.allTasks.update((list) =>
+          list.map((t) => (t.id === updated.id ? updated : t))
+        );
+        this.selectedTask.set(updated);
+        this.toast.success('Alterações salvas com sucesso!');
+      }
+      // Update cache
+      this.taskCache.set(this.selectedProjectId(), this.allTasks());
+      this.closeTaskDetails();
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao salvar tarefa.');
+    }
+  }
+
+  async handleDeleteTask(taskId: string): Promise<void> {
+    try {
+      await this.taskService.deleteTask(taskId);
+      this.allTasks.update((list) => list.filter((t) => t.id !== taskId));
+      this.taskCache.set(this.selectedProjectId(), this.allTasks());
+      this.closeTaskDetails();
+      this.toast.info('Tarefa removida.');
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao remover tarefa.');
+    }
+  }
+
+  // Project creation
+  openNewProjectModal(): void {
+    this.newProjectName = '';
+    this.newProjectDescription = '';
+    this.showNewProjectModal.set(true);
+  }
+
+  async handleCreateProject(): Promise<void> {
+    const name = this.newProjectName.trim();
+    if (!name) return;
+
+    this.isCreatingProject.set(true);
+    try {
+      const created = await this.projectService.createProject({
+        name,
+        description: this.newProjectDescription.trim(),
+      });
+      this.projects.update((list) => [...list, created]);
+      this.selectedProjectId.set(created.id);
+      this.showNewProjectModal.set(false);
+      await this.loadTasksForProject(created.id, true);
+      this.toast.success(`Projeto "${created.name}" criado com sucesso!`);
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao criar projeto.');
+    } finally {
+      this.isCreatingProject.set(false);
+    }
+  }
+
+  async handleOnboardingProject(name: string): Promise<void> {
+    try {
+      const created = await this.projectService.createProject({ name });
+      this.projects.set([created]);
+      this.selectedProjectId.set(created.id);
+      this.showOnboarding.set(false);
+      await this.loadTasksForProject(created.id, true);
+      this.toast.success(`Projeto "${created.name}" criado! Agora adicione sua primeira tarefa.`);
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao criar projeto inicial.');
+    }
+  }
+
+  getStatusLabel(status: TaskStatus): string {
+    switch (status) {
+      case 'backlog': return 'Backlog';
+      case 'in_progress': return 'Em andamento';
+      case 'ready_for_test': return 'Pronto para testar';
+      case 'done': return 'Concluído';
+    }
+  }
+
+  formatDueDate(dueAt: string): string {
+    try {
+      const date = new Date(dueAt);
+      return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+    } catch {
+      return dueAt;
+    }
+  }
+
+  isOverdue(dueAt: string): boolean {
+    try {
+      return new Date(dueAt).getTime() < Date.now();
+    } catch {
+      return false;
+    }
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  handleGlobalShortcuts(event: KeyboardEvent): void {
+    const target = event.target as HTMLElement;
+    const isEditing = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
+
+    // Shortcut 'N' -> Open new task modal (when not focused on input)
+    if (!isEditing && event.key.toLowerCase() === 'n' && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      this.openNewTaskModal();
+    }
   }
 }
