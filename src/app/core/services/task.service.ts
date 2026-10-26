@@ -73,7 +73,13 @@ export class TaskService {
     }
 
     if (filters.status && filters.status !== 'all') {
-      result = result.filter((t) => t.status === filters.status);
+      if (filters.status === 'in_progress' || (filters.status as any) === 'doing') {
+        result = result.filter((t) => t.status === 'in_progress' || (t.status as any) === 'doing');
+      } else if (filters.status === 'qa' || (filters.status as any) === 'ready_for_test') {
+        result = result.filter((t) => t.status === 'qa' || (t.status as any) === 'ready_for_test');
+      } else {
+        result = result.filter((t) => t.status === filters.status);
+      }
     }
 
     if (filters.priority && filters.priority !== 'all') {

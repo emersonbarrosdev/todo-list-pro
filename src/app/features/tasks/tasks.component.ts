@@ -33,15 +33,21 @@ import { ProjectService } from '../../core/services/project.service';
           <div class="workspace-header">
             <div class="workspace-top-bar">
               <div class="summary-meta">
-                <span class="summary-count">
-                  <strong>{{ activeCount() }}</strong> {{ activeCount() === 1 ? 'ativa' : 'ativas' }}
+                <span class="summary-item summary-backlog">
+                  <strong>{{ backlogCount() }}</strong> {{ backlogCount() === 1 ? 'não iniciada' : 'não iniciadas' }}
                 </span>
                 <span class="summary-divider">·</span>
-                <span class="summary-qa">
+                <span class="summary-item summary-doing">
+                  <strong>{{ doingCount() }}</strong> em andamento
+                </span>
+                <span class="summary-divider">·</span>
+                <span class="summary-item summary-qa">
                   <strong>{{ qaCount() }}</strong> em QA
                 </span>
                 <span class="summary-divider">·</span>
-                <span class="summary-done">{{ doneCount() }} concluídas</span>
+                <span class="summary-item summary-done">
+                  <strong>{{ doneCount() }}</strong> {{ doneCount() === 1 ? 'concluída' : 'concluídas' }}
+                </span>
               </div>
 
               <div class="top-bar-actions">
@@ -66,7 +72,7 @@ import { ProjectService } from '../../core/services/project.service';
 
             <!-- Compact Client-Side Filter & Sorting Bar -->
             <div class="filters-bar">
-              <!-- Quick Status Segmented Pills -->
+              <!-- Quick Status Segmented Pills with Live Badges -->
               <div class="status-pills" role="tablist">
                 <button
                   type="button"
@@ -74,7 +80,8 @@ import { ProjectService } from '../../core/services/project.service';
                   [class.active]="statusFilter() === 'backlog'"
                   (click)="setStatusFilter('backlog')"
                 >
-                  Backlog
+                  <span>Backlog</span>
+                  <span class="pill-badge">{{ backlogCount() }}</span>
                 </button>
                 <button
                   type="button"
@@ -82,7 +89,8 @@ import { ProjectService } from '../../core/services/project.service';
                   [class.active]="statusFilter() === 'in_progress' || statusFilter() === 'doing'"
                   (click)="setStatusFilter('in_progress')"
                 >
-                  Doing
+                  <span>Doing</span>
+                  <span class="pill-badge">{{ doingCount() }}</span>
                 </button>
                 <button
                   type="button"
@@ -90,7 +98,8 @@ import { ProjectService } from '../../core/services/project.service';
                   [class.active]="statusFilter() === 'qa'"
                   (click)="setStatusFilter('qa')"
                 >
-                  QA
+                  <span>QA</span>
+                  <span class="pill-badge">{{ qaCount() }}</span>
                 </button>
                 <button
                   type="button"
@@ -98,7 +107,8 @@ import { ProjectService } from '../../core/services/project.service';
                   [class.active]="statusFilter() === 'done'"
                   (click)="setStatusFilter('done')"
                 >
-                  Done
+                  <span>Done</span>
+                  <span class="pill-badge">{{ doneCount() }}</span>
                 </button>
                 <button
                   type="button"
@@ -106,7 +116,8 @@ import { ProjectService } from '../../core/services/project.service';
                   [class.active]="statusFilter() === 'all'"
                   (click)="setStatusFilter('all')"
                 >
-                  Todas
+                  <span>Todas</span>
+                  <span class="pill-badge">{{ totalCount() }}</span>
                 </button>
               </div>
 
@@ -196,69 +207,91 @@ import { ProjectService } from '../../core/services/project.service';
                           <span class="qa-flag-badge qa-flag-pending" [title]="task.qa_notes || 'Pendente'">⚠ Pendente</span>
                         }
 
-                        <span class="task-title">{{ task.title }}</span>
+                        <span class="task-title" [title]="task.title">{{ task.title }}</span>
                       </div>
 
                       <div class="task-right">
-                        <!-- Project Tag Colored Chip -->
-                        @if (task.project) {
-                          <span
-                            class="project-chip"
-                            [style.borderColor]="getProjectColor(task.project)"
-                            [style.color]="getProjectColor(task.project)"
-                            [style.background]="getProjectColor(task.project) + '15'"
-                          >
-                            {{ task.project }}
-                          </span>
-                        }
+                        <!-- 1. [TAG] Project Tag Colored Chip -->
+                        <div class="task-meta-cell task-meta-tag">
+                          @if (task.project) {
+                            <span
+                              class="project-chip"
+                              [style.borderColor]="getProjectColor(task.project)"
+                              [style.color]="getProjectColor(task.project)"
+                              [style.background]="getProjectColor(task.project) + '15'"
+                            >
+                              {{ task.project }}
+                            </span>
+                          }
+                        </div>
 
-                        <!-- If on "Todas" tab, show status navigation button to jump directly and open in inspector -->
-                        @if (statusFilter() === 'all') {
-                          <button
-                            type="button"
-                            class="btn-status-nav"
-                            [ngClass]="'status-nav-' + task.status"
-                            (click)="jumpToStatus(task, task.status, $event)"
-                            [title]="'Ver no ' + getStatusLabel(task.status) + ' e abrir detalhes'"
-                          >
-                            {{ getStatusLabel(task.status) }} →
-                          </button>
-                        } @else if (task.status === 'backlog') {
-                          <!-- Quick Start Action on Backlog -->
-                          <button
-                            type="button"
-                            class="btn-card-action btn-card-start"
-                            (click)="quickStartTask(task, $event)"
-                            title="Iniciar tarefa e abrir"
-                          >
-                            ▶ Iniciar
-                          </button>
-                        } @else if (task.status === 'in_progress' || task.status === 'doing') {
-                          <!-- Quick Finish to QA Action on Doing -->
-                          <button
-                            type="button"
-                            class="btn-card-action btn-card-finish"
-                            (click)="quickFinishTask(task, $event)"
-                            title="Finalizar e enviar para QA"
-                          >
-                            Finalizar → QA
-                          </button>
-                        } @else if (task.status === 'qa') {
-                          <span class="qa-state-pill">
-                            {{ task.qa_result === 'approved' ? 'Aprovado' : task.qa_result === 'rejected' ? 'Reprovado' : 'Aguardando QA' }}
-                          </span>
-                        }
-
-                        @if (task.priority !== 'normal') {
-                          <span class="priority-tag" [ngClass]="'priority-' + task.priority">
-                            {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
-                          </span>
-                        }
+                        <!-- Due Date if present -->
                         @if (task.due_at) {
-                          <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
-                            {{ formatDueDate(task.due_at) }}
-                          </span>
+                          <div class="task-meta-cell task-meta-due">
+                            <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
+                              {{ formatDueDate(task.due_at) }}
+                            </span>
+                          </div>
                         }
+
+                        <!-- 2. [PRIORIDADE] -->
+                        <div class="task-meta-cell task-meta-priority">
+                          @if (task.priority) {
+                            <span class="priority-tag" [ngClass]="'priority-' + task.priority">
+                              {{ getPriorityLabel(task.priority) }}
+                            </span>
+                          }
+                        </div>
+
+                        <!-- 3. [AÇÃO PRINCIPAL] SEMPRE O ÚLTIMO ELEMENTO À DIREITA -->
+                        <div class="task-meta-cell task-meta-action">
+                          @if (task.status === 'backlog') {
+                            <!-- Quick Start Action on Backlog -->
+                            <button
+                              type="button"
+                              class="btn-card-action btn-card-start"
+                              [disabled]="busyTaskId() === task.id"
+                              (click)="quickStartTask(task, $event)"
+                              title="Iniciar tarefa"
+                            >
+                              @if (busyTaskId() === task.id) {
+                                <span class="spinner-mini"></span>
+                                <span>Iniciando...</span>
+                              } @else {
+                                <span>▶ Iniciar</span>
+                              }
+                            </button>
+                          } @else if (task.status === 'in_progress' || task.status === 'doing') {
+                            <!-- Quick Finish to QA Action on Doing -->
+                            <button
+                              type="button"
+                              class="btn-card-action btn-card-finish"
+                              [disabled]="busyTaskId() === task.id"
+                              (click)="quickFinishTask(task, $event)"
+                              title="Finalizar e enviar para QA"
+                            >
+                              @if (busyTaskId() === task.id) {
+                                <span class="spinner-mini"></span>
+                                <span>Enviando...</span>
+                              } @else {
+                                <span>Finalizar → QA</span>
+                              }
+                            </button>
+                          } @else if (task.status === 'qa') {
+                            <button
+                              type="button"
+                              class="btn-card-action btn-card-qa"
+                              (click)="openTaskDetails(task, $event)"
+                              title="Validar tarefa no QA"
+                            >
+                              <span>Validar QA →</span>
+                            </button>
+                          } @else if (task.status === 'done') {
+                            <span class="done-check-pill" title="Tarefa Concluída">
+                              ✓ Concluída
+                            </span>
+                          }
+                        </div>
                       </div>
                     </div>
                   }
@@ -274,6 +307,7 @@ import { ProjectService } from '../../core/services/project.service';
         <app-task-details
           [task]="selectedTask()"
           [isNew]="isCreatingTask()"
+          [isSaving]="isSavingTask()"
           (save)="handleSaveTask($event)"
           (delete)="handleDeleteTask($event)"
           (close)="closeTaskDetails()"
@@ -320,20 +354,42 @@ import { ProjectService } from '../../core/services/project.service';
       color: var(--text-secondary);
     }
 
-    .summary-meta strong {
-      color: #FFFFFF;
+    .summary-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
     }
 
-    .summary-divider {
-      color: var(--text-muted);
+    .summary-backlog {
+      color: #94A3B8;
+    }
+    .summary-backlog strong {
+      color: #E2E8F0;
     }
 
+    .summary-doing {
+      color: #93C5FD;
+    }
+    .summary-doing strong {
+      color: #60A5FA;
+    }
+
+    .summary-qa {
+      color: #FDE68A;
+    }
     .summary-qa strong {
       color: #FCD34D;
     }
 
     .summary-done {
-      color: #6EE7B7;
+      color: #A7F3D0;
+    }
+    .summary-done strong {
+      color: #34D399;
+    }
+
+    .summary-divider {
+      color: var(--text-muted);
     }
 
     .btn-refresh {
@@ -389,7 +445,10 @@ import { ProjectService } from '../../core/services/project.service';
     }
 
     .filter-pill {
-      padding: 0.3rem 0.75rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.28rem 0.65rem;
       border-radius: 9999px;
       font-size: 0.75rem;
       font-weight: 600;
@@ -399,6 +458,7 @@ import { ProjectService } from '../../core/services/project.service';
       cursor: pointer;
       white-space: nowrap;
       transition: all var(--transition-fast);
+      line-height: 1.2;
     }
 
     .filter-pill:hover {
@@ -407,9 +467,35 @@ import { ProjectService } from '../../core/services/project.service';
     }
 
     .filter-pill.active {
-      background: rgba(139, 92, 246, 0.2);
+      background: rgba(139, 92, 246, 0.18);
       border-color: var(--primary);
       color: #C4B5FD;
+    }
+
+    .pill-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.15rem;
+      height: 1.15rem;
+      padding: 0 0.35rem;
+      border-radius: 9999px;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+      line-height: 1;
+      transition: all var(--transition-fast);
+    }
+
+    .filter-pill:hover .pill-badge {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .filter-pill.active .pill-badge {
+      background: rgba(139, 92, 246, 0.35);
+      color: #EDE9FE;
     }
 
     .secondary-filters {
@@ -530,7 +616,7 @@ import { ProjectService } from '../../core/services/project.service';
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 1rem;
+      gap: 1.25rem;
       padding: 0.65rem 1rem;
       background: #14141E;
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -563,6 +649,8 @@ import { ProjectService } from '../../core/services/project.service';
       display: flex;
       align-items: center;
       gap: 0.65rem;
+      min-width: 0;
+      flex: 1 1 auto;
       overflow: hidden;
     }
 
@@ -574,7 +662,7 @@ import { ProjectService } from '../../core/services/project.service';
     }
 
     .status-backlog { background: #94A3B8; }
-    .status-in_progress { background: #3B82F6; }
+    .status-in_progress, .status-doing { background: #3B82F6; }
     .status-qa { background: #F59E0B; }
     .status-done { background: #10B981; }
 
@@ -587,17 +675,35 @@ import { ProjectService } from '../../core/services/project.service';
       white-space: nowrap;
     }
 
-    .task-done-check {
-      color: #10B981;
-      font-weight: 800;
-      font-size: 0.8125rem;
-    }
-
     .task-right {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      flex-shrink: 0;
+      justify-content: flex-end;
+      gap: 0.65rem;
+      flex: 0 0 auto;
+    }
+
+    .task-meta-cell {
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .task-meta-tag {
+      /* Project chip slot */
+    }
+
+    .task-meta-due {
+      /* Prazo slot */
+    }
+
+    .task-meta-priority {
+      min-width: 54px;
+      justify-content: center;
+    }
+
+    .task-meta-action {
+      min-width: 116px;
+      justify-content: flex-end;
     }
 
     /* Project Chip with Colored Contour */
@@ -609,6 +715,7 @@ import { ProjectService } from '../../core/services/project.service';
       border-radius: 9999px;
       padding: 0.15rem 0.55rem;
       letter-spacing: 0.02em;
+      white-space: nowrap;
     }
 
     /* Reprovado / Pendente Badges */
@@ -618,6 +725,7 @@ import { ProjectService } from '../../core/services/project.service';
       padding: 0.15rem 0.45rem;
       border-radius: 4px;
       flex-shrink: 0;
+      white-space: nowrap;
     }
 
     .qa-flag-rejected {
@@ -632,51 +740,72 @@ import { ProjectService } from '../../core/services/project.service';
       color: #FBBF24;
     }
 
-    .qa-state-pill {
-      font-size: 0.6875rem;
-      font-weight: 700;
-      padding: 0.12rem 0.45rem;
-      border-radius: 4px;
-      background: rgba(245, 158, 11, 0.18);
-      color: #FCD34D;
-      border: 1px solid rgba(245, 158, 11, 0.35);
-      flex-shrink: 0;
-    }
-
     /* Card Action Buttons */
     .btn-card-action {
       display: inline-flex;
       align-items: center;
-      gap: 0.3rem;
-      padding: 0.2rem 0.55rem;
+      justify-content: center;
+      gap: 0.35rem;
+      padding: 0.22rem 0.65rem;
       border-radius: 4px;
       font-size: 0.6875rem;
       font-weight: 700;
       border: 1px solid transparent;
       cursor: pointer;
+      white-space: nowrap;
       transition: all var(--transition-fast);
     }
 
+    .btn-card-action:disabled {
+      opacity: 0.65;
+      cursor: wait;
+    }
+
     .btn-card-start {
-      background: rgba(59, 130, 246, 0.2);
+      background: rgba(59, 130, 246, 0.18);
       border-color: #3B82F6;
       color: #93C5FD;
     }
 
-    .btn-card-start:hover {
+    .btn-card-start:hover:not(:disabled) {
       background: #3B82F6;
       color: #FFFFFF;
     }
 
     .btn-card-finish {
-      background: rgba(245, 158, 11, 0.2);
+      background: rgba(245, 158, 11, 0.18);
       border-color: #F59E0B;
       color: #FCD34D;
     }
 
-    .btn-card-finish:hover {
+    .btn-card-finish:hover:not(:disabled) {
       background: #F59E0B;
       color: #000000;
+    }
+
+    .btn-card-qa {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: rgba(245, 158, 11, 0.35);
+      color: #FCD34D;
+    }
+
+    .btn-card-qa:hover:not(:disabled) {
+      background: #F59E0B;
+      color: #000000;
+    }
+
+    .done-check-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #6EE7B7;
+      white-space: nowrap;
     }
 
     .priority-tag {
@@ -684,12 +813,19 @@ import { ProjectService } from '../../core/services/project.service';
       font-weight: 600;
       padding: 0.15rem 0.45rem;
       border-radius: 4px;
+      white-space: nowrap;
     }
 
     .priority-high {
       background: rgba(239, 68, 68, 0.15);
       color: #FCA5A5;
       border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .priority-normal {
+      background: rgba(148, 163, 184, 0.12);
+      color: #94A3B8;
+      border: 1px solid rgba(148, 163, 184, 0.2);
     }
 
     .priority-low {
@@ -705,67 +841,13 @@ import { ProjectService } from '../../core/services/project.service';
       background: var(--surface-secondary);
       color: var(--text-secondary);
       border: 1px solid var(--border);
+      white-space: nowrap;
     }
 
     .due-tag.overdue {
       background: rgba(239, 68, 68, 0.15);
       color: #F87171;
       border-color: rgba(239, 68, 68, 0.3);
-    }
-
-    /* Status Navigation Button (in "Todas" view) */
-    .btn-status-nav {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      padding: 0.25rem 0.65rem;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      font-weight: 700;
-      cursor: pointer;
-      border: 1px solid transparent;
-      transition: all var(--transition-fast);
-      white-space: nowrap;
-    }
-
-    .status-nav-backlog {
-      background: rgba(148, 163, 184, 0.15);
-      border-color: rgba(148, 163, 184, 0.35);
-      color: #CBD5E1;
-    }
-    .status-nav-backlog:hover {
-      background: rgba(148, 163, 184, 0.3);
-      color: #FFFFFF;
-    }
-
-    .status-nav-in_progress, .status-nav-doing {
-      background: rgba(59, 130, 246, 0.15);
-      border-color: rgba(59, 130, 246, 0.35);
-      color: #93C5FD;
-    }
-    .status-nav-in_progress:hover, .status-nav-doing:hover {
-      background: rgba(59, 130, 246, 0.3);
-      color: #FFFFFF;
-    }
-
-    .status-nav-qa {
-      background: rgba(245, 158, 11, 0.15);
-      border-color: rgba(245, 158, 11, 0.35);
-      color: #FCD34D;
-    }
-    .status-nav-qa:hover {
-      background: rgba(245, 158, 11, 0.3);
-      color: #FFFFFF;
-    }
-
-    .status-nav-done {
-      background: rgba(16, 185, 129, 0.15);
-      border-color: rgba(16, 185, 129, 0.35);
-      color: #6EE7B7;
-    }
-    .status-nav-done:hover {
-      background: rgba(16, 185, 129, 0.3);
-      color: #FFFFFF;
     }
 
     /* Empty State */
@@ -819,13 +901,45 @@ import { ProjectService } from '../../core/services/project.service';
     }
 
     @media (max-width: 640px) {
+      .workspace-top-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+      }
+      .summary-meta {
+        flex-wrap: wrap;
+        gap: 0.35rem 0.55rem;
+        font-size: 0.8125rem;
+      }
       .filters-bar {
         flex-direction: column;
         align-items: flex-start;
       }
+      .status-pills {
+        width: 100%;
+        padding-bottom: 0.25rem;
+      }
       .secondary-filters {
         width: 100%;
         justify-content: space-between;
+      }
+      .task-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.55rem;
+        padding: 0.75rem 0.85rem;
+      }
+      .task-left {
+        width: 100%;
+      }
+      .task-right {
+        width: 100%;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .task-meta-action {
+        margin-left: auto;
       }
     }
   `],
@@ -883,13 +997,20 @@ export class TasksComponent implements OnInit {
     this.filteredTasks().filter((t) => t.status === 'done')
   );
 
-  // Summary counts
+  // Action & persistence loading states
+  isSavingTask = signal(false);
+  busyTaskId = signal<string | null>(null);
+
+  // Summary & Tab Counts (100% reactive, derived from allTasks as single source of truth)
   readonly totalCount = computed(() => this.allTasks().length);
-  readonly activeCount = computed(
-    () => this.allTasks().filter((t) => t.status === 'backlog' || t.status === 'in_progress' || (t.status as any) === 'doing').length
+  readonly backlogCount = computed(
+    () => this.allTasks().filter((t) => t.status === 'backlog').length
+  );
+  readonly doingCount = computed(
+    () => this.allTasks().filter((t) => t.status === 'in_progress' || (t.status as any) === 'doing').length
   );
   readonly qaCount = computed(
-    () => this.allTasks().filter((t) => t.status === 'qa').length
+    () => this.allTasks().filter((t) => t.status === 'qa' || (t.status as any) === 'ready_for_test').length
   );
   readonly doneCount = computed(
     () => this.allTasks().filter((t) => t.status === 'done').length
@@ -972,7 +1093,8 @@ export class TasksComponent implements OnInit {
     this.isCreatingTask.set(true);
   }
 
-  openTaskDetails(task: Task): void {
+  openTaskDetails(task: Task, event?: MouseEvent): void {
+    if (event) event.stopPropagation();
     this.selectedTask.set(task);
     this.isCreatingTask.set(false);
   }
@@ -985,6 +1107,8 @@ export class TasksComponent implements OnInit {
   // Quick Action: Iniciar on Backlog card (moves to in_progress, resets qa_result, saves, and opens inspector)
   async quickStartTask(task: Task, event: MouseEvent): Promise<void> {
     event.stopPropagation();
+    if (this.busyTaskId() === task.id) return;
+    this.busyTaskId.set(task.id);
     try {
       const updated = await this.taskService.updateTask(task.id, {
         status: 'in_progress',
@@ -998,6 +1122,8 @@ export class TasksComponent implements OnInit {
       this.openTaskDetails(updated);
     } catch (err: any) {
       this.toast.error(err.message || 'Erro ao iniciar tarefa.');
+    } finally {
+      this.busyTaskId.set(null);
     }
   }
 
@@ -1023,6 +1149,8 @@ export class TasksComponent implements OnInit {
   // Quick Action: Finalizar on In Progress card (moves to qa with qa_result: not_started)
   async quickFinishTask(task: Task, event: MouseEvent): Promise<void> {
     event.stopPropagation();
+    if (this.busyTaskId() === task.id) return;
+    this.busyTaskId.set(task.id);
     try {
       const updated = await this.taskService.updateTask(task.id, {
         status: 'qa',
@@ -1035,10 +1163,13 @@ export class TasksComponent implements OnInit {
       this.toast.success(`Tarefa enviada para QA: ${task.title}`);
     } catch (err: any) {
       this.toast.error(err.message || 'Erro ao finalizar tarefa.');
+    } finally {
+      this.busyTaskId.set(null);
     }
   }
 
   async handleSaveTask(payload: any): Promise<void> {
+    this.isSavingTask.set(true);
     try {
       if (this.isCreatingTask()) {
         const created = await this.taskService.createTask(payload as CreateTaskDto);
@@ -1059,6 +1190,17 @@ export class TasksComponent implements OnInit {
       this.closeTaskDetails();
     } catch (err: any) {
       this.toast.error(err.message || 'Erro ao salvar tarefa.');
+    } finally {
+      this.isSavingTask.set(false);
+    }
+  }
+
+  getPriorityLabel(priority: TaskPriority): string {
+    switch (priority) {
+      case 'high': return 'Alta';
+      case 'normal': return 'Média';
+      case 'low': return 'Baixa';
+      default: return 'Normal';
     }
   }
 

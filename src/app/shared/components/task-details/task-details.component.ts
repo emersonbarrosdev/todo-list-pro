@@ -42,6 +42,8 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                 class="input title-input-box"
                 [(ngModel)]="title"
                 (ngModelChange)="markDirty()"
+                (keyup.enter)="title.trim() && !isSaving && savingStatus() !== 'saving' && handleSave()"
+                [disabled]="isSaving || savingStatus() === 'saving'"
                 placeholder="Ex: Desenvolver fluxo de login no Projeto 1..."
                 maxlength="200"
                 autofocus
@@ -146,17 +148,17 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
           </div>
 
           <div class="modal-footer">
-            <button type="button" class="btn btn-ghost" (click)="requestClose()">Cancelar</button>
+            <button type="button" class="btn btn-ghost" [disabled]="isSaving || savingStatus() === 'saving'" (click)="requestClose()">Cancelar</button>
             <button
               id="btn-create-task-submit"
               type="button"
               class="btn btn-primary"
-              [disabled]="!title.trim() || savingStatus() === 'saving'"
+              [disabled]="!title.trim() || isSaving || savingStatus() === 'saving'"
               (click)="handleSave()"
             >
-              @if (savingStatus() === 'saving') {
+              @if (isSaving || savingStatus() === 'saving') {
                 <span class="spinner-mini"></span>
-                <span>Criando...</span>
+                <span>Criando tarefa...</span>
               } @else {
                 <span>Criar Tarefa</span>
               }
@@ -257,18 +259,18 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                 id="btn-save-task"
                 type="button"
                 class="btn-save"
-                [class.clean]="savingStatus() === 'clean'"
-                [class.dirty]="savingStatus() === 'dirty'"
-                [class.saving]="savingStatus() === 'saving'"
+                [class.clean]="!isSaving && savingStatus() === 'clean'"
+                [class.dirty]="!isSaving && savingStatus() === 'dirty'"
+                [class.saving]="isSaving || savingStatus() === 'saving'"
                 [class.saved]="savingStatus() === 'saved'"
                 [class.error]="savingStatus() === 'error'"
-                [disabled]="savingStatus() === 'clean' || savingStatus() === 'saving' || !title.trim()"
+                [disabled]="isSaving || savingStatus() === 'clean' || savingStatus() === 'saving' || !title.trim()"
                 (click)="handleSave()"
                 title="Salvar alterações (Ctrl+S)"
               >
-                @if (savingStatus() === 'saving') {
+                @if (isSaving || savingStatus() === 'saving') {
                   <span class="spinner-mini"></span>
-                  <span>Salvando...</span>
+                  <span>Atualizando...</span>
                 } @else if (savingStatus() === 'saved') {
                   <span>✓ Salvo</span>
                 } @else if (savingStatus() === 'error') {
@@ -1566,6 +1568,7 @@ export class TaskDetailsComponent implements OnInit {
   @Input() projects: Project[] = [];
   @Input() defaultProjectId: string = '';
   @Input() isNew = false;
+  @Input() isSaving = false;
 
   @Output() save = new EventEmitter<UpdateTaskDto | CreateTaskDto>();
   @Output() delete = new EventEmitter<string>();
@@ -1813,7 +1816,7 @@ export class TaskDetailsComponent implements OnInit {
 
   handleSave(): void {
     const cleanTitle = this.title.trim();
-    if (!cleanTitle) return;
+    if (!cleanTitle || this.isSaving || this.savingStatus() === 'saving') return;
 
     if (this.status === 'done' && this.qaResult === 'rejected') {
       this.qaBlockedMessage.set('Não é possível concluir: o QA foi reprovado.');

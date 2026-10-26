@@ -358,3 +358,20 @@ a:hover {
   gap: 0.75rem;
   max-width: 420px;
 }
+
+/* Spinner Utility */
+.spinner-mini {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spinMini 0.7s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spinMini {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
