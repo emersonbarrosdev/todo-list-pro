@@ -42,7 +42,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                 class="input title-input-box"
                 [(ngModel)]="title"
                 (ngModelChange)="markDirty()"
-                placeholder="Ex: Desenvolver fluxo de login no Fundacion..."
+                placeholder="Ex: Desenvolver fluxo de login no Projeto 1..."
                 maxlength="200"
                 autofocus
               />
@@ -59,7 +59,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                     class="input project-input"
                     [(ngModel)]="project"
                     (ngModelChange)="markDirty()"
-                    placeholder="Ex: Fundacion, Prouser, Meu site..."
+                    placeholder="Ex: Projeto 1"
                     maxlength="50"
                   />
                   @if (project.trim()) {
