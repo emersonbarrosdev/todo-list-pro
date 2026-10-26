@@ -11,7 +11,7 @@ export interface QaChecklistItem {
 export interface Task {
   id: string;
   user_id: string;
-  project: string; // Nome / etiqueta do projeto (ex: Fundacion, Prouser, Meu site)
+  project: string; // Nome / etiqueta do projeto (ex: Projeto 1)
   title: string;
   description: string;
   status: TaskStatus;
