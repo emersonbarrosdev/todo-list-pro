@@ -1,4 +1,4 @@
-export type TaskStatus = 'backlog' | 'in_progress' | 'qa' | 'done';
+export type TaskStatus = 'backlog' | 'in_progress' | 'doing' | 'qa' | 'done';
 export type TaskPriority = 'low' | 'normal' | 'high';
 export type QaResult = 'not_started' | 'pending' | 'approved' | 'rejected';
 

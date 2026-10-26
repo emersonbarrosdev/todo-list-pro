@@ -87,10 +87,10 @@ import { ProjectService } from '../../core/services/project.service';
                 <button
                   type="button"
                   class="filter-pill"
-                  [class.active]="statusFilter() === 'in_progress'"
+                  [class.active]="statusFilter() === 'in_progress' || statusFilter() === 'doing'"
                   (click)="setStatusFilter('in_progress')"
                 >
-                  In Progress ({{ inProgressTasks().length }})
+                  Doing ({{ inProgressTasks().length }})
                 </button>
                 <button
                   type="button"
@@ -300,11 +300,11 @@ import { ProjectService } from '../../core/services/project.service';
                   </div>
                 </div>
 
-                <!-- Section 2: IN PROGRESS -->
+                <!-- Section 2: DOING -->
                 <div class="workflow-section">
                   <div class="section-title-bar">
                     <span class="section-dot dot-in-progress"></span>
-                    <span class="section-heading">IN PROGRESS</span>
+                    <span class="section-heading">DOING</span>
                     <span class="section-counter">({{ inProgressTasks().length }})</span>
                   </div>
                   <div class="section-tasks">
@@ -352,7 +352,7 @@ import { ProjectService } from '../../core/services/project.service';
                       </div>
                     }
                     @if (inProgressTasks().length === 0) {
-                      <div class="section-empty">Nenhuma tarefa em andamento</div>
+                      <div class="section-empty">Nenhuma tarefa em doing</div>
                     }
                   </div>
                 </div>
@@ -951,7 +951,7 @@ export class TasksComponent implements OnInit {
   );
 
   readonly inProgressTasks = computed(() =>
-    this.filteredTasks().filter((t) => t.status === 'in_progress')
+    this.filteredTasks().filter((t) => t.status === 'in_progress' || (t.status as any) === 'doing')
   );
 
   readonly qaTasks = computed(() =>
@@ -965,7 +965,7 @@ export class TasksComponent implements OnInit {
   // Summary counts
   readonly totalCount = computed(() => this.allTasks().length);
   readonly activeCount = computed(
-    () => this.allTasks().filter((t) => t.status === 'backlog' || t.status === 'in_progress').length
+    () => this.allTasks().filter((t) => t.status === 'backlog' || t.status === 'in_progress' || (t.status as any) === 'doing').length
   );
   readonly qaCount = computed(
     () => this.allTasks().filter((t) => t.status === 'qa').length
@@ -1136,7 +1136,8 @@ export class TasksComponent implements OnInit {
   getStatusLabel(status: TaskStatus): string {
     switch (status) {
       case 'backlog': return 'Backlog';
-      case 'in_progress': return 'In Progress';
+      case 'in_progress':
+      case 'doing': return 'Doing';
       case 'qa': return 'QA';
       case 'done': return 'Done';
     }

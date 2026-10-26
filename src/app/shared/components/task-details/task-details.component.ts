@@ -178,7 +178,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                   type="button"
                   class="btn-flow btn-flow-start"
                   (click)="transitionWorkflow('in_progress')"
-                  title="Mudar status para In Progress"
+                  title="Mudar status para Doing"
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                     <polygon points="5 3 19 12 5 21 5 3"></polygon>
@@ -187,8 +187,8 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                 </button>
               }
 
-              <!-- Workflow Action: In Progress -> Finalizar (to QA) -->
-              @if (status === 'in_progress') {
+              <!-- Workflow Action: Doing -> Finalizar (to QA) -->
+              @if (status === 'in_progress' || status === 'doing') {
                 <button
                   id="btn-workflow-finish"
                   type="button"
@@ -219,7 +219,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                     type="button"
                     class="btn-qa-action btn-qa-pending"
                     (click)="triggerQaDecision('pending')"
-                    title="Marcar pendência e retornar para In Progress"
+                    title="Marcar pendência e retornar para Doing"
                   >
                     ⚠ Pendente
                   </button>
@@ -243,7 +243,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                     type="button"
                     class="btn-reopen"
                     (click)="transitionWorkflow('in_progress')"
-                    title="Reabrir tarefa em In Progress"
+                    title="Reabrir tarefa em Doing"
                   >
                     Reabrir
                   </button>
@@ -1769,7 +1769,7 @@ export class TaskDetailsComponent implements OnInit {
 
     if (decision === 'pending') {
       this.pendingDecision.set('pending');
-      this.reasonPromptTitle.set('Motivo da Pendência (Retornará para In Progress)');
+      this.reasonPromptTitle.set('Motivo da Pendência (Retornará para Doing)');
       this.qaReasonInput = this.qaNotes || '';
       this.showReasonModal.set(true);
       return;
