@@ -1,6 +1,6 @@
-export type TaskStatus = 'backlog' | 'in_progress' | 'ready_for_test' | 'done';
+export type TaskStatus = 'backlog' | 'in_progress' | 'qa' | 'done';
 export type TaskPriority = 'low' | 'normal' | 'high';
-export type QaResult = 'pending' | 'approved' | 'rejected';
+export type QaResult = 'not_started' | 'pending' | 'approved' | 'rejected';
 
 export interface QaChecklistItem {
   id: string;
@@ -10,8 +10,8 @@ export interface QaChecklistItem {
 
 export interface Task {
   id: string;
-  project_id: string;
   user_id: string;
+  project: string; // Nome / etiqueta do projeto (ex: Fundacion, Prouser, Meu site)
   title: string;
   description: string;
   status: TaskStatus;
@@ -19,12 +19,13 @@ export interface Task {
   due_at: string | null;
   qa_checklist: QaChecklistItem[];
   qa_result: QaResult;
-  qa_notes: string;
+  qa_notes: string; // Motivo obrigatório em reprovação/pendência ou observação
+  images: string[]; // Lista de imagens (miniaturas com lightbox)
   completed_at: string | null;
   created_at: string;
   updated_at: string;
-  // Optional legacy fields for backward compatibility during migration
-  project_name?: string;
+  // Campos de compatibilidade legada
+  project_id?: string;
   tags?: string[];
   checklist?: any[];
   work_mode?: string;
@@ -32,8 +33,8 @@ export interface Task {
 }
 
 export interface CreateTaskDto {
-  project_id: string;
   title: string;
+  project?: string;
   description?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
@@ -41,8 +42,35 @@ export interface CreateTaskDto {
   qa_checklist?: QaChecklistItem[];
   qa_result?: QaResult;
   qa_notes?: string;
+  images?: string[];
+  project_id?: string;
 }
 
 export interface UpdateTaskDto extends Partial<CreateTaskDto> {
   completed_at?: string | null;
+}
+
+export const PROJECT_PALETTE: readonly string[] = [
+  '#A78BFA', // Violet
+  '#38BDF8', // Sky Blue
+  '#34D399', // Emerald
+  '#FBBF24', // Amber
+  '#F472B6', // Pink
+  '#818CF8', // Indigo
+  '#FB923C', // Orange
+  '#2DD4BF', // Teal
+  '#E879F9', // Fuchsia
+  '#60A5FA', // Blue
+  '#4ADE80', // Green
+];
+
+export function getProjectColor(project?: string | null): string {
+  const name = (project || '').trim();
+  if (!name) return '#94A3B8';
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % PROJECT_PALETTE.length;
+  return PROJECT_PALETTE[index];
 }

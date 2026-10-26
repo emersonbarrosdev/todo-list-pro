@@ -2,27 +2,26 @@ import { Component, OnInit, computed, inject, signal, HostListener } from '@angu
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HeaderComponent } from '../../shared/components/header/header.component';
-import { OnboardingComponent } from '../../shared/components/onboarding/onboarding.component';
 import { TaskDetailsComponent } from '../../shared/components/task-details/task-details.component';
 import { TaskService } from '../../core/services/task.service';
-import { ProjectService } from '../../core/services/project.service';
 import { ToastService } from '../../core/services/toast.service';
-import { Task, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto } from '../../core/models/task.model';
+import { Task, TaskStatus, TaskPriority, CreateTaskDto, UpdateTaskDto, getProjectColor } from '../../core/models/task.model';
 import { Project } from '../../core/models/project.model';
+
+import { ProjectService } from '../../core/services/project.service';
 
 @Component({
   selector: 'app-tasks',
   standalone: true,
-  imports: [CommonModule, FormsModule, HeaderComponent, OnboardingComponent, TaskDetailsComponent],
+  imports: [CommonModule, FormsModule, HeaderComponent, TaskDetailsComponent],
   template: `
     <div class="tasks-layout">
-      <!-- Shell Header -->
+      <!-- Shell Header (No global project selector, search + single + Nova tarefa button) -->
       <app-header
         [projects]="projects()"
         [selectedProjectId]="selectedProjectId()"
         [searchQuery]="searchQuery()"
         (projectChanged)="onProjectChange($event)"
-        (newProjectClicked)="openNewProjectModal()"
         (searchChanged)="onSearchChange($event)"
         (newTaskClicked)="openNewTaskModal()"
       ></app-header>
@@ -30,16 +29,16 @@ import { Project } from '../../core/models/project.model';
       <!-- Main Workspace -->
       <main class="main-content">
         <div class="app-container">
-          <!-- Top Bar: Summary and Refresh Button ONLY (NO duplicate "+ Nova tarefa") -->
+          <!-- Top Bar: Summary and Refresh Button ONLY -->
           <div class="workspace-header">
             <div class="workspace-top-bar">
               <div class="summary-meta">
                 <span class="summary-count">
-                  <strong>{{ activeCount() }}</strong> {{ activeCount() === 1 ? 'tarefa ativa' : 'tarefas ativas' }}
+                  <strong>{{ activeCount() }}</strong> {{ activeCount() === 1 ? 'ativa' : 'ativas' }}
                 </span>
                 <span class="summary-divider">·</span>
-                <span class="summary-test">
-                  <strong>{{ readyForTestCount() }}</strong> em teste
+                <span class="summary-qa">
+                  <strong>{{ qaCount() }}</strong> em QA
                 </span>
                 <span class="summary-divider">·</span>
                 <span class="summary-done">{{ doneCount() }} concluídas</span>
@@ -51,7 +50,7 @@ import { Project } from '../../core/models/project.model';
                   id="btn-refresh-tasks"
                   type="button"
                   class="btn-refresh"
-                  (click)="refreshCurrentProject(true)"
+                  (click)="refreshTasks(true)"
                   [disabled]="isLoading()"
                   title="Recarregar tarefas do servidor"
                 >
@@ -83,7 +82,7 @@ import { Project } from '../../core/models/project.model';
                   [class.active]="statusFilter() === 'backlog'"
                   (click)="setStatusFilter('backlog')"
                 >
-                  Backlog
+                  Backlog ({{ backlogTasks().length }})
                 </button>
                 <button
                   type="button"
@@ -91,15 +90,15 @@ import { Project } from '../../core/models/project.model';
                   [class.active]="statusFilter() === 'in_progress'"
                   (click)="setStatusFilter('in_progress')"
                 >
-                  Em andamento
+                  In Progress ({{ inProgressTasks().length }})
                 </button>
                 <button
                   type="button"
                   class="filter-pill"
-                  [class.active]="statusFilter() === 'ready_for_test'"
-                  (click)="setStatusFilter('ready_for_test')"
+                  [class.active]="statusFilter() === 'qa'"
+                  (click)="setStatusFilter('qa')"
                 >
-                  Pronto para testar
+                  QA ({{ qaTasks().length }})
                 </button>
                 <button
                   type="button"
@@ -107,7 +106,7 @@ import { Project } from '../../core/models/project.model';
                   [class.active]="statusFilter() === 'done'"
                   (click)="setStatusFilter('done')"
                 >
-                  Concluídas ({{ doneCount() }})
+                  Done ({{ doneCount() }})
                 </button>
               </div>
 
@@ -154,8 +153,8 @@ import { Project } from '../../core/models/project.model';
               <!-- Empty State -->
               <div class="empty-state">
                 <div class="empty-icon">✓</div>
-                <h3 class="empty-title">Tudo organizado!</h3>
-                <p class="empty-subtitle">Nenhuma tarefa encontrada neste projeto ou com os filtros atuais.</p>
+                <h3 class="empty-title">Nenhuma tarefa encontrada</h3>
+                <p class="empty-subtitle">Comece organizando seus projetos e demandas com uma nova tarefa.</p>
                 <button
                   id="btn-empty-new-task"
                   type="button"
@@ -166,7 +165,7 @@ import { Project } from '../../core/models/project.model';
                 </button>
               </div>
             } @else if (statusFilter() !== 'all') {
-              <!-- Single Filtered List -->
+              <!-- Single Filtered List View -->
               <div class="task-list">
                 @for (task of filteredTasks(); track task.id) {
                   <div
@@ -180,13 +179,53 @@ import { Project } from '../../core/models/project.model';
                         [ngClass]="'status-' + task.status"
                         [title]="getStatusLabel(task.status)"
                       ></span>
+
+                      <!-- Reprovado chip if applicable -->
+                      @if (task.qa_result === 'rejected') {
+                        <span class="qa-flag-badge qa-flag-rejected" [title]="task.qa_notes || 'Reprovado'">✕ Reprovado</span>
+                      }
+                      <!-- Pendente chip if applicable -->
+                      @if (task.qa_result === 'pending') {
+                        <span class="qa-flag-badge qa-flag-pending" [title]="task.qa_notes || 'Pendente'">⚠ Pendente</span>
+                      }
+
                       <span class="task-title">{{ task.title }}</span>
                     </div>
 
                     <div class="task-right">
-                      @if (selectedProjectId() === 'all' && task.project_name) {
-                        <span class="project-tag">{{ task.project_name }}</span>
+                      <!-- Project Tag Colored Chip -->
+                      @if (task.project) {
+                        <span
+                          class="project-chip"
+                          [style.borderColor]="getProjectColor(task.project)"
+                          [style.color]="getProjectColor(task.project)"
+                          [style.background]="getProjectColor(task.project) + '15'"
+                        >
+                          {{ task.project }}
+                        </span>
                       }
+
+                      <!-- Quick Action Buttons -->
+                      @if (task.status === 'backlog') {
+                        <button
+                          type="button"
+                          class="btn-card-action btn-card-start"
+                          (click)="quickStartTask(task, $event)"
+                          title="Iniciar tarefa e abrir"
+                        >
+                          ▶ Iniciar
+                        </button>
+                      } @else if (task.status === 'in_progress') {
+                        <button
+                          type="button"
+                          class="btn-card-action btn-card-finish"
+                          (click)="quickFinishTask(task, $event)"
+                          title="Finalizar e enviar para QA"
+                        >
+                          Finalizar → QA
+                        </button>
+                      }
+
                       @if (task.priority !== 'normal') {
                         <span class="priority-tag" [ngClass]="'priority-' + task.priority">
                           {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
@@ -202,7 +241,7 @@ import { Project } from '../../core/models/project.model';
                 }
               </div>
             } @else {
-              <!-- Sections: BACKLOG, EM ANDAMENTO, PRONTO PARA TESTAR, CONCLUÍDO -->
+              <!-- 4 Vertical Workflow Sections: BACKLOG, IN PROGRESS, QA, DONE -->
               <div class="workflow-sections">
                 <!-- Section 1: BACKLOG -->
                 <div class="workflow-section">
@@ -215,12 +254,33 @@ import { Project } from '../../core/models/project.model';
                     @for (task of backlogTasks(); track task.id) {
                       <div class="task-row" (click)="openTaskDetails(task)">
                         <div class="task-left">
+                          <!-- If previously rejected, show prominent Reprovado badge -->
+                          @if (task.qa_result === 'rejected') {
+                            <span class="qa-flag-badge qa-flag-rejected" [title]="task.qa_notes || 'Reprovado no QA'">✕ Reprovado</span>
+                          }
                           <span class="task-title">{{ task.title }}</span>
                         </div>
                         <div class="task-right">
-                          @if (selectedProjectId() === 'all' && task.project_name) {
-                            <span class="project-tag">{{ task.project_name }}</span>
+                          @if (task.project) {
+                            <span
+                              class="project-chip"
+                              [style.borderColor]="getProjectColor(task.project)"
+                              [style.color]="getProjectColor(task.project)"
+                              [style.background]="getProjectColor(task.project) + '15'"
+                            >
+                              {{ task.project }}
+                            </span>
                           }
+                          <!-- Quick Start Button -->
+                          <button
+                            type="button"
+                            class="btn-card-action btn-card-start"
+                            (click)="quickStartTask(task, $event)"
+                            title="Iniciar tarefa agora e abrir"
+                          >
+                            ▶ Iniciar
+                          </button>
+
                           @if (task.priority !== 'normal') {
                             <span class="priority-tag" [ngClass]="'priority-' + task.priority">
                               {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
@@ -240,23 +300,44 @@ import { Project } from '../../core/models/project.model';
                   </div>
                 </div>
 
-                <!-- Section 2: EM ANDAMENTO -->
+                <!-- Section 2: IN PROGRESS -->
                 <div class="workflow-section">
                   <div class="section-title-bar">
                     <span class="section-dot dot-in-progress"></span>
-                    <span class="section-heading">EM ANDAMENTO</span>
+                    <span class="section-heading">IN PROGRESS</span>
                     <span class="section-counter">({{ inProgressTasks().length }})</span>
                   </div>
                   <div class="section-tasks">
                     @for (task of inProgressTasks(); track task.id) {
                       <div class="task-row" (click)="openTaskDetails(task)">
                         <div class="task-left">
+                          <!-- If marked pending in QA, show Pendente badge -->
+                          @if (task.qa_result === 'pending') {
+                            <span class="qa-flag-badge qa-flag-pending" [title]="task.qa_notes || 'Pendente em QA'">⚠ Pendente</span>
+                          }
                           <span class="task-title">{{ task.title }}</span>
                         </div>
                         <div class="task-right">
-                          @if (selectedProjectId() === 'all' && task.project_name) {
-                            <span class="project-tag">{{ task.project_name }}</span>
+                          @if (task.project) {
+                            <span
+                              class="project-chip"
+                              [style.borderColor]="getProjectColor(task.project)"
+                              [style.color]="getProjectColor(task.project)"
+                              [style.background]="getProjectColor(task.project) + '15'"
+                            >
+                              {{ task.project }}
+                            </span>
                           }
+                          <!-- Quick Finish to QA Button -->
+                          <button
+                            type="button"
+                            class="btn-card-action btn-card-finish"
+                            (click)="quickFinishTask(task, $event)"
+                            title="Finalizar e enviar para QA"
+                          >
+                            Finalizar → QA
+                          </button>
+
                           @if (task.priority !== 'normal') {
                             <span class="priority-tag" [ngClass]="'priority-' + task.priority">
                               {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
@@ -276,25 +357,32 @@ import { Project } from '../../core/models/project.model';
                   </div>
                 </div>
 
-                <!-- Section 3: PRONTO PARA TESTAR -->
-                <div class="workflow-section">
+                <!-- Section 3: QA -->
+                <div class="workflow-section section-qa">
                   <div class="section-title-bar">
-                    <span class="section-dot dot-ready-for-test"></span>
-                    <span class="section-heading">PRONTO PARA TESTAR</span>
-                    <span class="section-counter">({{ readyForTestTasks().length }})</span>
+                    <span class="section-dot dot-qa"></span>
+                    <span class="section-heading">QA</span>
+                    <span class="section-counter">({{ qaTasks().length }})</span>
                   </div>
                   <div class="section-tasks">
-                    @for (task of readyForTestTasks(); track task.id) {
+                    @for (task of qaTasks(); track task.id) {
                       <div class="task-row highlight-qa" (click)="openTaskDetails(task)">
                         <div class="task-left">
-                          <span class="qa-mini-badge" [ngClass]="'qa-' + task.qa_result">
-                            {{ task.qa_result === 'approved' ? 'Aprovado' : task.qa_result === 'rejected' ? 'Reprovado' : 'QA' }}
+                          <span class="qa-state-pill">
+                            {{ task.qa_result === 'approved' ? 'Aprovado' : task.qa_result === 'rejected' ? 'Reprovado' : 'Aguardando QA' }}
                           </span>
                           <span class="task-title">{{ task.title }}</span>
                         </div>
                         <div class="task-right">
-                          @if (selectedProjectId() === 'all' && task.project_name) {
-                            <span class="project-tag">{{ task.project_name }}</span>
+                          @if (task.project) {
+                            <span
+                              class="project-chip"
+                              [style.borderColor]="getProjectColor(task.project)"
+                              [style.color]="getProjectColor(task.project)"
+                              [style.background]="getProjectColor(task.project) + '15'"
+                            >
+                              {{ task.project }}
+                            </span>
                           }
                           @if (task.priority !== 'normal') {
                             <span class="priority-tag" [ngClass]="'priority-' + task.priority">
@@ -309,28 +397,36 @@ import { Project } from '../../core/models/project.model';
                         </div>
                       </div>
                     }
-                    @if (readyForTestTasks().length === 0) {
-                      <div class="section-empty">Nenhuma tarefa pronta para testar</div>
+                    @if (qaTasks().length === 0) {
+                      <div class="section-empty">Nenhuma tarefa em QA</div>
                     }
                   </div>
                 </div>
 
-                <!-- Section 4: CONCLUÍDO -->
+                <!-- Section 4: DONE -->
                 <div class="workflow-section">
                   <div class="section-title-bar">
                     <span class="section-dot dot-done"></span>
-                    <span class="section-heading">CONCLUÍDO</span>
+                    <span class="section-heading">DONE</span>
                     <span class="section-counter">({{ doneTasks().length }})</span>
                   </div>
                   <div class="section-tasks">
                     @for (task of doneTasks(); track task.id) {
                       <div class="task-row task-done" (click)="openTaskDetails(task)">
                         <div class="task-left">
+                          <span class="task-done-check">✓</span>
                           <span class="task-title">{{ task.title }}</span>
                         </div>
                         <div class="task-right">
-                          @if (selectedProjectId() === 'all' && task.project_name) {
-                            <span class="project-tag">{{ task.project_name }}</span>
+                          @if (task.project) {
+                            <span
+                              class="project-chip"
+                              [style.borderColor]="getProjectColor(task.project)"
+                              [style.color]="getProjectColor(task.project)"
+                              [style.background]="getProjectColor(task.project) + '15'"
+                            >
+                              {{ task.project }}
+                            </span>
                           }
                         </div>
                       </div>
@@ -346,72 +442,15 @@ import { Project } from '../../core/models/project.model';
         </div>
       </main>
 
-      <!-- Task Details Sheet (Manual Save, Zero Autosave) -->
+      <!-- Task Details & Creation Sheet -->
       @if (selectedTask() || isCreatingTask()) {
         <app-task-details
           [task]="selectedTask()"
-          [projects]="projects()"
-          [defaultProjectId]="selectedProjectId() === 'all' ? (projects()[0]?.id || '') : selectedProjectId()"
           [isNew]="isCreatingTask()"
           (save)="handleSaveTask($event)"
           (delete)="handleDeleteTask($event)"
           (close)="closeTaskDetails()"
         ></app-task-details>
-      }
-
-      <!-- New Project Modal -->
-      @if (showNewProjectModal()) {
-        <div class="modal-backdrop" (click)="showNewProjectModal.set(false)">
-          <div class="modal-card" (click)="$event.stopPropagation()">
-            <h3 class="modal-title">+ Novo Projeto</h3>
-            <p class="modal-desc">Crie um projeto pessoal para organizar suas tarefas.</p>
-
-            <div class="modal-form">
-              <label class="input-label" for="new-project-name">Nome do projeto</label>
-              <input
-                id="new-project-name"
-                type="text"
-                class="input"
-                [(ngModel)]="newProjectName"
-                placeholder="Ex: Narrativa Studio, TODO PRO..."
-                autofocus
-              />
-
-              <label class="input-label" for="new-project-desc">Descrição (opcional)</label>
-              <input
-                id="new-project-desc"
-                type="text"
-                class="input"
-                [(ngModel)]="newProjectDescription"
-                placeholder="Ex: Estúdio de áudio e narração..."
-              />
-
-              <div class="modal-actions">
-                <button
-                  type="button"
-                  class="btn btn-secondary"
-                  (click)="showNewProjectModal.set(false)"
-                >
-                  Cancelar
-                </button>
-                <button
-                  id="btn-create-project-submit"
-                  type="button"
-                  class="btn btn-primary"
-                  [disabled]="!newProjectName.trim() || isCreatingProject()"
-                  (click)="handleCreateProject()"
-                >
-                  {{ isCreatingProject() ? 'Criando...' : 'Criar projeto' }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      }
-
-      <!-- Onboarding Modal if user has zero projects -->
-      @if (showOnboarding()) {
-        <app-onboarding (projectCreated)="handleOnboardingProject($event)"></app-onboarding>
       }
     </div>
   `,
@@ -462,7 +501,7 @@ import { Project } from '../../core/models/project.model';
       color: var(--text-muted);
     }
 
-    .summary-test strong {
+    .summary-qa strong {
       color: #FCD34D;
     }
 
@@ -523,7 +562,7 @@ import { Project } from '../../core/models/project.model';
     }
 
     .filter-pill {
-      padding: 0.3rem 0.7rem;
+      padding: 0.3rem 0.75rem;
       border-radius: 9999px;
       font-size: 0.75rem;
       font-weight: 600;
@@ -552,7 +591,7 @@ import { Project } from '../../core/models/project.model';
       gap: 0.5rem;
     }
 
-    /* Workflow Sections: BACKLOG, EM ANDAMENTO, PRONTO PARA TESTAR, CONCLUÍDO */
+    /* Workflow Sections: BACKLOG, IN PROGRESS, QA, DONE */
     .workflow-sections {
       display: flex;
       flex-direction: column;
@@ -564,6 +603,10 @@ import { Project } from '../../core/models/project.model';
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       overflow: hidden;
+    }
+
+    .workflow-section.section-qa {
+      border-color: rgba(245, 158, 11, 0.3);
     }
 
     .section-title-bar {
@@ -594,8 +637,8 @@ import { Project } from '../../core/models/project.model';
     }
 
     .dot-backlog { background: #94A3B8; }
-    .dot-in-progress { background: #60A5FA; }
-    .dot-ready-for-test { background: #F59E0B; }
+    .dot-in-progress { background: #3B82F6; }
+    .dot-qa { background: #F59E0B; }
     .dot-done { background: #10B981; }
 
     .section-tasks {
@@ -653,7 +696,7 @@ import { Project } from '../../core/models/project.model';
     .task-left {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.65rem;
       overflow: hidden;
     }
 
@@ -665,8 +708,8 @@ import { Project } from '../../core/models/project.model';
     }
 
     .status-backlog { background: #94A3B8; }
-    .status-in_progress { background: #60A5FA; }
-    .status-ready_for_test { background: #F59E0B; }
+    .status-in_progress { background: #3B82F6; }
+    .status-qa { background: #F59E0B; }
     .status-done { background: #10B981; }
 
     .task-title {
@@ -678,6 +721,12 @@ import { Project } from '../../core/models/project.model';
       white-space: nowrap;
     }
 
+    .task-done-check {
+      color: #10B981;
+      font-weight: 800;
+      font-size: 0.8125rem;
+    }
+
     .task-right {
       display: flex;
       align-items: center;
@@ -685,14 +734,83 @@ import { Project } from '../../core/models/project.model';
       flex-shrink: 0;
     }
 
-    .project-tag {
+    /* Project Chip with Colored Contour */
+    .project-chip {
       font-size: 0.6875rem;
-      font-weight: 600;
-      padding: 0.15rem 0.5rem;
+      font-weight: 700;
+      border-width: 1.5px;
+      border-style: solid;
+      border-radius: 9999px;
+      padding: 0.15rem 0.55rem;
+      letter-spacing: 0.02em;
+    }
+
+    /* Reprovado / Pendente Badges */
+    .qa-flag-badge {
+      font-size: 0.6875rem;
+      font-weight: 800;
+      padding: 0.15rem 0.45rem;
       border-radius: 4px;
-      background: rgba(139, 92, 246, 0.12);
-      color: #C4B5FD;
-      border: 1px solid rgba(139, 92, 246, 0.25);
+      flex-shrink: 0;
+    }
+
+    .qa-flag-rejected {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid #EF4444;
+      color: #F87171;
+    }
+
+    .qa-flag-pending {
+      background: rgba(245, 158, 11, 0.2);
+      border: 1px solid #F59E0B;
+      color: #FBBF24;
+    }
+
+    .qa-state-pill {
+      font-size: 0.6875rem;
+      font-weight: 700;
+      padding: 0.12rem 0.45rem;
+      border-radius: 4px;
+      background: rgba(245, 158, 11, 0.18);
+      color: #FCD34D;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      flex-shrink: 0;
+    }
+
+    /* Card Action Buttons */
+    .btn-card-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      font-size: 0.6875rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .btn-card-start {
+      background: rgba(59, 130, 246, 0.2);
+      border-color: #3B82F6;
+      color: #93C5FD;
+    }
+
+    .btn-card-start:hover {
+      background: #3B82F6;
+      color: #FFFFFF;
+    }
+
+    .btn-card-finish {
+      background: rgba(245, 158, 11, 0.2);
+      border-color: #F59E0B;
+      color: #FCD34D;
+    }
+
+    .btn-card-finish:hover {
+      background: #F59E0B;
+      color: #000000;
     }
 
     .priority-tag {
@@ -727,32 +845,6 @@ import { Project } from '../../core/models/project.model';
       background: rgba(239, 68, 68, 0.15);
       color: #F87171;
       border-color: rgba(239, 68, 68, 0.3);
-    }
-
-    .qa-mini-badge {
-      font-size: 0.6875rem;
-      font-weight: 700;
-      padding: 0.1rem 0.4rem;
-      border-radius: 3px;
-      flex-shrink: 0;
-    }
-
-    .qa-mini-badge.qa-pending {
-      background: rgba(245, 158, 11, 0.2);
-      color: #FCD34D;
-      border: 1px solid rgba(245, 158, 11, 0.4);
-    }
-
-    .qa-mini-badge.qa-approved {
-      background: rgba(16, 185, 129, 0.2);
-      color: #6EE7B7;
-      border: 1px solid rgba(16, 185, 129, 0.4);
-    }
-
-    .qa-mini-badge.qa-rejected {
-      background: rgba(239, 68, 68, 0.2);
-      color: #FCA5A5;
-      border: 1px solid rgba(239, 68, 68, 0.4);
     }
 
     /* Empty State */
@@ -794,62 +886,6 @@ import { Project } from '../../core/models/project.model';
       margin-bottom: 0.5rem;
     }
 
-    /* Modal Backdrop & Card */
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.7);
-      backdrop-filter: blur(4px);
-      z-index: 1000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1.25rem;
-    }
-
-    .modal-card {
-      width: 100%;
-      max-width: 440px;
-      background: #161622;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 1.75rem;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
-      animation: modalScale 0.15s ease-out;
-    }
-
-    .modal-title {
-      font-size: 1.25rem;
-      font-weight: 700;
-      color: #FFFFFF;
-      margin-bottom: 0.25rem;
-    }
-
-    .modal-desc {
-      font-size: 0.8125rem;
-      color: var(--text-muted);
-      margin-bottom: 1.25rem;
-    }
-
-    .modal-form {
-      display: flex;
-      flex-direction: column;
-      gap: 0.85rem;
-    }
-
-    .input-label {
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--text);
-    }
-
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 0.75rem;
-      margin-top: 0.75rem;
-    }
-
     .skeleton-list {
       display: flex;
       flex-direction: column;
@@ -859,11 +895,6 @@ import { Project } from '../../core/models/project.model';
     .skeleton-row {
       height: 44px;
       border-radius: var(--radius-sm);
-    }
-
-    @keyframes modalScale {
-      from { transform: scale(0.96); opacity: 0; }
-      to { transform: scale(1); opacity: 1; }
     }
 
     @media (max-width: 640px) {
@@ -883,6 +914,8 @@ export class TasksComponent implements OnInit {
   private projectService = inject(ProjectService);
   private toast = inject(ToastService);
 
+  getProjectColor = getProjectColor;
+
   // Projects state
   projects = signal<Project[]>([]);
   selectedProjectId = signal<string>('all');
@@ -900,13 +933,6 @@ export class TasksComponent implements OnInit {
 
   selectedTask = signal<Task | null>(null);
   isCreatingTask = signal(false);
-
-  showNewProjectModal = signal(false);
-  newProjectName = '';
-  newProjectDescription = '';
-  isCreatingProject = signal(false);
-
-  showOnboarding = signal(false);
 
   // Filtered tasks computed purely in memory (ZERO HTTP calls on search/filter/sort)
   readonly filteredTasks = computed(() => {
@@ -928,8 +954,8 @@ export class TasksComponent implements OnInit {
     this.filteredTasks().filter((t) => t.status === 'in_progress')
   );
 
-  readonly readyForTestTasks = computed(() =>
-    this.filteredTasks().filter((t) => t.status === 'ready_for_test')
+  readonly qaTasks = computed(() =>
+    this.filteredTasks().filter((t) => t.status === 'qa')
   );
 
   readonly doneTasks = computed(() =>
@@ -941,8 +967,8 @@ export class TasksComponent implements OnInit {
   readonly activeCount = computed(
     () => this.allTasks().filter((t) => t.status === 'backlog' || t.status === 'in_progress').length
   );
-  readonly readyForTestCount = computed(
-    () => this.allTasks().filter((t) => t.status === 'ready_for_test').length
+  readonly qaCount = computed(
+    () => this.allTasks().filter((t) => t.status === 'qa').length
   );
   readonly doneCount = computed(
     () => this.allTasks().filter((t) => t.status === 'done').length
@@ -955,60 +981,49 @@ export class TasksComponent implements OnInit {
   async loadInitialData(): Promise<void> {
     this.isLoading.set(true);
     try {
-      // 1. Fetch user projects (1 GET request)
-      const projectList = await this.projectService.getProjects();
-      this.projects.set(projectList);
-
-      if (projectList.length === 0) {
-        this.showOnboarding.set(true);
-        this.isLoading.set(false);
-        return;
+      const projectList = await this.projectService.getProjects().catch(() => []);
+      if (projectList && projectList.length > 0) {
+        this.projects.set(projectList);
+      } else {
+        this.projects.set([
+          {
+            id: 'proj_default',
+            user_id: 'default',
+            name: 'Geral',
+            archived: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ]);
       }
-
-      // Default to first project if available
-      const defaultProj = projectList[0];
-      this.selectedProjectId.set(defaultProj.id);
-
-      // 2. Fetch tasks for current project (1 GET request)
-      await this.loadTasksForProject(defaultProj.id);
+      // Direct load of all tasks for the authenticated user (1 GET request)
+      const data = await this.taskService.getTasks();
+      this.allTasks.set(data);
+      this.taskCache.set('all', data);
     } catch (err: any) {
-      this.toast.error(err.message || 'Erro ao carregar dados do servidor.');
+      this.toast.error(err.message || 'Erro ao carregar tarefas do servidor.');
     } finally {
       this.isLoading.set(false);
     }
   }
 
-  async loadTasksForProject(projectId: string, forceRefresh = false): Promise<void> {
-    // Check in-memory session cache first to save requests
-    if (!forceRefresh && this.taskCache.has(projectId)) {
-      this.allTasks.set(this.taskCache.get(projectId)!);
-      return;
-    }
-
-    try {
-      const data = await this.taskService.getTasks(projectId);
-      this.allTasks.set(data);
-      this.taskCache.set(projectId, data);
-    } catch (err: any) {
-      this.toast.error(err.message || 'Erro ao carregar tarefas.');
-    }
-  }
-
-  async onProjectChange(projectId: string): Promise<void> {
+  onProjectChange(projectId: string): void {
     this.selectedProjectId.set(projectId);
-    this.isLoading.set(true);
-    await this.loadTasksForProject(projectId);
-    this.isLoading.set(false);
   }
 
-  async refreshCurrentProject(force = true): Promise<void> {
+  async refreshTasks(force = true): Promise<void> {
     this.isLoading.set(true);
-    this.taskCache.clear(); // Invalidate cache on explicit user request
-    const projectList = await this.projectService.getProjects();
-    this.projects.set(projectList);
-    await this.loadTasksForProject(this.selectedProjectId(), force);
-    this.isLoading.set(false);
-    this.toast.info('Tarefas atualizadas com sucesso.');
+    this.taskCache.clear();
+    try {
+      const data = await this.taskService.getTasks();
+      this.allTasks.set(data);
+      this.taskCache.set('all', data);
+      this.toast.info('Tarefas atualizadas.');
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao atualizar tarefas.');
+    } finally {
+      this.isLoading.set(false);
+    }
   }
 
   // Client-Side Search & Filter methods (ZERO requests)
@@ -1046,6 +1061,42 @@ export class TasksComponent implements OnInit {
     this.isCreatingTask.set(false);
   }
 
+  // Quick Action: Iniciar on Backlog card (moves to in_progress, saves, and opens inspector)
+  async quickStartTask(task: Task, event: MouseEvent): Promise<void> {
+    event.stopPropagation();
+    try {
+      const updated = await this.taskService.updateTask(task.id, {
+        status: 'in_progress',
+      });
+      this.allTasks.update((list) =>
+        list.map((t) => (t.id === updated.id ? updated : t))
+      );
+      this.taskCache.set('all', this.allTasks());
+      this.toast.success(`Tarefa iniciada: ${task.title}`);
+      this.openTaskDetails(updated);
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao iniciar tarefa.');
+    }
+  }
+
+  // Quick Action: Finalizar on In Progress card (moves to qa with qa_result: not_started)
+  async quickFinishTask(task: Task, event: MouseEvent): Promise<void> {
+    event.stopPropagation();
+    try {
+      const updated = await this.taskService.updateTask(task.id, {
+        status: 'qa',
+        qa_result: 'not_started',
+      });
+      this.allTasks.update((list) =>
+        list.map((t) => (t.id === updated.id ? updated : t))
+      );
+      this.taskCache.set('all', this.allTasks());
+      this.toast.success(`Tarefa enviada para QA: ${task.title}`);
+    } catch (err: any) {
+      this.toast.error(err.message || 'Erro ao finalizar tarefa.');
+    }
+  }
+
   async handleSaveTask(payload: any): Promise<void> {
     try {
       if (this.isCreatingTask()) {
@@ -1063,8 +1114,7 @@ export class TasksComponent implements OnInit {
         this.selectedTask.set(updated);
         this.toast.success('Alterações salvas com sucesso!');
       }
-      // Update cache
-      this.taskCache.set(this.selectedProjectId(), this.allTasks());
+      this.taskCache.set('all', this.allTasks());
       this.closeTaskDetails();
     } catch (err: any) {
       this.toast.error(err.message || 'Erro ao salvar tarefa.');
@@ -1075,7 +1125,7 @@ export class TasksComponent implements OnInit {
     try {
       await this.taskService.deleteTask(taskId);
       this.allTasks.update((list) => list.filter((t) => t.id !== taskId));
-      this.taskCache.set(this.selectedProjectId(), this.allTasks());
+      this.taskCache.set('all', this.allTasks());
       this.closeTaskDetails();
       this.toast.info('Tarefa removida.');
     } catch (err: any) {
@@ -1083,54 +1133,12 @@ export class TasksComponent implements OnInit {
     }
   }
 
-  // Project creation
-  openNewProjectModal(): void {
-    this.newProjectName = '';
-    this.newProjectDescription = '';
-    this.showNewProjectModal.set(true);
-  }
-
-  async handleCreateProject(): Promise<void> {
-    const name = this.newProjectName.trim();
-    if (!name) return;
-
-    this.isCreatingProject.set(true);
-    try {
-      const created = await this.projectService.createProject({
-        name,
-        description: this.newProjectDescription.trim(),
-      });
-      this.projects.update((list) => [...list, created]);
-      this.selectedProjectId.set(created.id);
-      this.showNewProjectModal.set(false);
-      await this.loadTasksForProject(created.id, true);
-      this.toast.success(`Projeto "${created.name}" criado com sucesso!`);
-    } catch (err: any) {
-      this.toast.error(err.message || 'Erro ao criar projeto.');
-    } finally {
-      this.isCreatingProject.set(false);
-    }
-  }
-
-  async handleOnboardingProject(name: string): Promise<void> {
-    try {
-      const created = await this.projectService.createProject({ name });
-      this.projects.set([created]);
-      this.selectedProjectId.set(created.id);
-      this.showOnboarding.set(false);
-      await this.loadTasksForProject(created.id, true);
-      this.toast.success(`Projeto "${created.name}" criado! Agora adicione sua primeira tarefa.`);
-    } catch (err: any) {
-      this.toast.error(err.message || 'Erro ao criar projeto inicial.');
-    }
-  }
-
   getStatusLabel(status: TaskStatus): string {
     switch (status) {
       case 'backlog': return 'Backlog';
-      case 'in_progress': return 'Em andamento';
-      case 'ready_for_test': return 'Pronto para testar';
-      case 'done': return 'Concluído';
+      case 'in_progress': return 'In Progress';
+      case 'qa': return 'QA';
+      case 'done': return 'Done';
     }
   }
 

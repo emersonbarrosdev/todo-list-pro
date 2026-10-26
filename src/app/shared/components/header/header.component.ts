@@ -11,7 +11,7 @@ import { Project } from '../../../core/models/project.model';
   template: `
     <header class="app-header">
       <div class="header-container">
-        <!-- Logo & Project Selector Group -->
+        <!-- Logo -->
         <div class="brand-group">
           <a routerLink="/" class="logo" aria-label="TODO PRO Início">
             <div class="logo-icon">
@@ -21,76 +21,6 @@ import { Project } from '../../../core/models/project.model';
             </div>
             <span class="logo-text">TODO <span class="logo-highlight">PRO</span></span>
           </a>
-
-          <!-- Project Selector Dropdown -->
-          <div class="project-selector-wrapper">
-            <button
-              id="header-project-selector"
-              class="project-selector-btn"
-              [class.open]="showProjectMenu()"
-              (click)="toggleProjectMenu($event)"
-              type="button"
-              aria-label="Selecionar projeto"
-            >
-              <svg class="project-folder-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-              </svg>
-              <span class="project-label">{{ currentProjectName() }}</span>
-              <svg class="chevron-icon" [class.rotated]="showProjectMenu()" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            </button>
-
-            @if (showProjectMenu()) {
-              <div class="dropdown-menu project-menu" (click)="$event.stopPropagation()">
-                <div class="dropdown-header">Projetos</div>
-                <div class="project-list-scroll">
-                  @for (project of projects; track project.id) {
-                    <button
-                      class="dropdown-item"
-                      [class.active]="selectedProjectId === project.id"
-                      (click)="onSelectProject(project.id)"
-                      type="button"
-                    >
-                      <span class="project-bullet"></span>
-                      <span class="project-item-name">{{ project.name }}</span>
-                    </button>
-                  }
-                </div>
-
-                <div class="dropdown-divider"></div>
-
-                <button
-                  class="dropdown-item"
-                  [class.active]="selectedProjectId === 'all'"
-                  (click)="onSelectProject('all')"
-                  type="button"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="14" width="7" height="7"></rect>
-                    <rect x="3" y="14" width="7" height="7"></rect>
-                  </svg>
-                  <span>Todos os projetos</span>
-                </button>
-
-                <div class="dropdown-divider"></div>
-
-                <button
-                  class="dropdown-item new-project-action"
-                  (click)="onNewProject()"
-                  type="button"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                  </svg>
-                  <span>+ Novo projeto</span>
-                </button>
-              </div>
-            }
-          </div>
         </div>
 
         <!-- Search Bar (Desktop) -->

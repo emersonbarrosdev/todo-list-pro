@@ -3,6 +3,7 @@ import { ApiClientService } from './api-client.service';
 import { Task, CreateTaskDto, UpdateTaskDto, TaskStatus, TaskPriority } from '../models/task.model';
 
 export interface TaskFilterOptions {
+  project?: string;
   projectId?: string;
   status?: TaskStatus | 'all';
   priority?: TaskPriority | 'all';
@@ -18,12 +19,10 @@ export class TaskService {
 
   /**
    * Loads user tasks from D1 through Worker API.
-   * If a specific projectId is passed, loads only that project's tasks.
-   * Otherwise loads all tasks.
-   * Executed once on initial load or project switch, never on filter/search/sort.
+   * Executed once on initial load, never on filter/search/sort.
    */
-  async getTasks(projectId?: string): Promise<Task[]> {
-    const endpoint = projectId && projectId !== 'all' ? `/tasks?projectId=${projectId}` : '/tasks';
+  async getTasks(project?: string): Promise<Task[]> {
+    const endpoint = '/tasks';
     return this.api.get<Task[]>(endpoint);
   }
 
@@ -41,7 +40,7 @@ export class TaskService {
 
   /**
    * Persists the entire task state into D1 with a single PUT call.
-   * Triggered ONLY when the user clicks 'Salvar' or uses Ctrl+S / Cmd+S.
+   * Triggered ONLY when the user clicks 'Salvar', workflow action buttons, or uses Ctrl+S / Cmd+S.
    */
   async updateTask(id: string, updates: UpdateTaskDto): Promise<Task> {
     return this.api.put<Task>(`/tasks/${id}`, updates);
@@ -63,8 +62,14 @@ export class TaskService {
 
     if (!filters) return result;
 
-    if (filters.projectId && filters.projectId !== 'all') {
-      result = result.filter((t) => t.project_id === filters.projectId);
+    if (filters.project && filters.project !== 'all') {
+      result = result.filter(
+        (t) => (t.project || '').toLowerCase().trim() === filters.project!.toLowerCase().trim()
+      );
+    } else if (filters.projectId && filters.projectId !== 'all') {
+      result = result.filter(
+        (t) => (t.project || t.project_id || '').toLowerCase().trim() === filters.projectId!.toLowerCase().trim()
+      );
     }
 
     if (filters.status && filters.status !== 'all') {
@@ -80,8 +85,9 @@ export class TaskService {
       result = result.filter(
         (t) =>
           t.title.toLowerCase().includes(q) ||
-          t.description.toLowerCase().includes(q) ||
-          (t.project_name && t.project_name.toLowerCase().includes(q))
+          (t.description && t.description.toLowerCase().includes(q)) ||
+          (t.project && t.project.toLowerCase().includes(q)) ||
+          (t.qa_notes && t.qa_notes.toLowerCase().includes(q))
       );
     }
 

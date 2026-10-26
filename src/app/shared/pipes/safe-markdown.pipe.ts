@@ -28,6 +28,12 @@ export class SafeMarkdownPipe implements PipeTransform {
     // 5. Italic: *text*
     escaped = escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
+    // 5.5 Auto-linkify URLs (http:// or https://)
+    escaped = escaped.replace(
+      /(https?:\/\/[^\s<]+)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer" class="md-link">$1</a>'
+    );
+
     // 6. Unordered lists: - item or * item
     const lines = escaped.split('\n');
     let inList = false;
