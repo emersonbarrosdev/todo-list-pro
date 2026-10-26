@@ -20,6 +20,7 @@ export interface ClerkAuthState {
 export class ClerkService {
   private clerkInstance: Clerk | null = null;
   private pendingEmail: string = '';
+  private authFlow: 'sign_in' | 'sign_up' = 'sign_in';
   private initPromise: Promise<void> | null = null;
 
   private state = signal<ClerkAuthState>({
@@ -126,11 +127,10 @@ export class ClerkService {
       return { success: true };
     }
 
+    // 1. Tentar primeiro o Sign In (para usuários que já possuem conta)
     try {
-      // Official Clerk Passwordless Flow: signUpIfMissing avoids 422 for new users
       const signInAttempt = await client.signIn.create({
         identifier: normalizedEmail,
-        signUpIfMissing: true,
       });
 
       const emailCodeFactor = signInAttempt.supportedFirstFactors?.find(
@@ -142,23 +142,67 @@ export class ClerkService {
           strategy: 'email_code',
           emailAddressId: emailCodeFactor.emailAddressId as string,
         });
+        this.authFlow = 'sign_in';
         return { success: true };
       }
 
-      // Check if password factor is required
       const hasPasswordFactor = signInAttempt.supportedFirstFactors?.some(
         (f) => f.strategy === 'password'
       );
       if (hasPasswordFactor) {
         throw new Error(
-          'No painel do Clerk, desative a exigência de senha e ative o código por e-mail para autenticação passwordless.'
+          'Esta conta exige senha no Clerk. Desative a exigência de senha no painel do Clerk para usar código por e-mail.'
         );
       }
 
+      this.authFlow = 'sign_in';
       return { success: true };
-    } catch (err: any) {
-      const msg = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || 'Falha ao enviar código.';
-      throw new Error(msg);
+    } catch (signInErr: any) {
+      const errCode = signInErr?.errors?.[0]?.code;
+      const errMsg = (signInErr?.errors?.[0]?.message || signInErr?.message || '').toLowerCase();
+      const isNotFound =
+        errCode === 'form_identifier_not_found' ||
+        errMsg.includes("couldn't find your account") ||
+        errMsg.includes('not found') ||
+        errMsg.includes('não foi possível encontrar sua conta');
+
+      // Se não for "conta não encontrada", repassa o erro original (ex: rate limit ou e-mail inválido)
+      if (!isNotFound) {
+        const msg =
+          signInErr?.errors?.[0]?.longMessage ||
+          signInErr?.errors?.[0]?.message ||
+          signInErr?.message ||
+          'Falha ao iniciar acesso.';
+        throw new Error(msg);
+      }
+
+      // 2. Novo usuário (esposa, irmão, equipe): iniciar fluxo de cadastro (Sign Up)
+      try {
+        const signUpAttempt = await client.signUp.create({
+          emailAddress: normalizedEmail,
+        });
+
+        await signUpAttempt.prepareEmailAddressVerification({
+          strategy: 'email_code',
+        });
+
+        this.authFlow = 'sign_up';
+        return { success: true };
+      } catch (signUpErr: any) {
+        const signUpCode = signUpErr?.errors?.[0]?.code;
+        if (signUpCode === 'sign_up_disabled' || signUpCode === 'identifier_not_allowed') {
+          throw new Error(
+            'Novos cadastros estão restritos no painel do Clerk (Configure > User & Authentication > Restrictions).'
+          );
+        }
+
+        const msg =
+          signUpErr?.errors?.[0]?.longMessage ||
+          signUpErr?.errors?.[0]?.message ||
+          signUpErr?.message ||
+          'Falha ao cadastrar e enviar código para este e-mail.';
+        throw new Error(msg);
+      }
     }
   }
 
@@ -183,7 +227,42 @@ export class ClerkService {
     const client = this.clerkInstance.client;
 
     try {
-      // 1. Attempt first factor verification on the sign-in
+      // 1. Fluxo de Sign Up (novo usuário cadastrado)
+      if (this.authFlow === 'sign_up' || client.signUp?.status === 'missing_requirements') {
+        const completeSignUp = await client.signUp.attemptEmailAddressVerification({
+          code: cleanCode,
+        });
+
+        if (completeSignUp.status === 'complete' && completeSignUp.createdSessionId) {
+          await this.clerkInstance.setActive({ session: completeSignUp.createdSessionId });
+          this.syncUserState();
+          return true;
+        }
+
+        // Se o painel do Clerk exigir senha ou nome para cadastro
+        if (completeSignUp.status === 'missing_requirements') {
+          const updatePayload: any = {};
+          if (completeSignUp.missingFields?.includes('password')) {
+            updatePayload.password = 'Pwd_' + crypto.randomUUID().replace(/-/g, '') + '_!9aZ#';
+          }
+          if (completeSignUp.missingFields?.includes('first_name')) {
+            updatePayload.firstName = (this.pendingEmail || 'user').split('@')[0];
+          }
+
+          if (Object.keys(updatePayload).length > 0) {
+            const finalizedSignUp = await client.signUp.update(updatePayload);
+            if (finalizedSignUp.status === 'complete' && finalizedSignUp.createdSessionId) {
+              await this.clerkInstance.setActive({ session: finalizedSignUp.createdSessionId });
+              this.syncUserState();
+              return true;
+            }
+          }
+        }
+
+        return false;
+      }
+
+      // 2. Fluxo de Sign In (usuário existente)
       const completeSignIn = await client.signIn.attemptFirstFactor({
         strategy: 'email_code',
         code: cleanCode,
@@ -195,7 +274,7 @@ export class ClerkService {
         return true;
       }
 
-      // 2. If user did not exist, Clerk flags firstFactorVerification as transferable
+      // Se a verificação for transferível para cadastro
       if ((completeSignIn as any).firstFactorVerification?.status === 'transferable') {
         const completeSignUp = await client.signUp.create({
           transfer: true,
@@ -226,7 +305,27 @@ export class ClerkService {
 
       return false;
     } catch (err: any) {
-      const msg = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || 'Código inválido ou expirado.';
+      // Fallback de segurança: se falhar no sign_in e houver signUp pendente
+      if (this.authFlow === 'sign_in' && client.signUp?.status === 'missing_requirements') {
+        try {
+          const completeSignUp = await client.signUp.attemptEmailAddressVerification({
+            code: cleanCode,
+          });
+          if (completeSignUp.status === 'complete' && completeSignUp.createdSessionId) {
+            await this.clerkInstance.setActive({ session: completeSignUp.createdSessionId });
+            this.syncUserState();
+            return true;
+          }
+        } catch {
+          // prossegue com o erro principal
+        }
+      }
+
+      const msg =
+        err?.errors?.[0]?.longMessage ||
+        err?.errors?.[0]?.message ||
+        err?.message ||
+        'Código inválido ou expirado.';
       throw new Error(msg);
     }
   }
@@ -235,6 +334,8 @@ export class ClerkService {
     if (this.clerkInstance) {
       await this.clerkInstance.signOut();
     }
+    this.authFlow = 'sign_in';
+    this.pendingEmail = '';
     localStorage.removeItem('todo_pro_clerk_mock_user');
     localStorage.removeItem('todo_pro_pending_email');
     this.state.set({ user: null, loaded: true, loading: false });
