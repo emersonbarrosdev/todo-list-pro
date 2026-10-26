@@ -273,105 +273,64 @@ async function ensureDbSchema(db: D1Database): Promise<void> {
   if (schemaEnsured) return;
 
   try {
-    const prep = db.prepare("PRAGMA table_info(tasks)");
-    if (!prep) return;
-    let queryResult: D1Result<{ name: string }> | undefined;
-    if (typeof prep.all === 'function') {
-      queryResult = await prep.all<{ name: string }>().catch(() => undefined);
-    } else if (typeof prep.bind === 'function') {
-      const bound = prep.bind();
-      if (typeof bound.all === 'function') {
-        queryResult = await bound.all<{ name: string }>().catch(() => undefined);
+    // 1. Ensure tasks table exists
+    const createTasksStmt = db.prepare(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        project TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'backlog',
+        priority TEXT NOT NULL DEFAULT 'normal',
+        due_at TEXT,
+        qa_checklist TEXT NOT NULL DEFAULT '[]',
+        qa_result TEXT NOT NULL DEFAULT 'not_started',
+        qa_notes TEXT NOT NULL DEFAULT '',
+        images TEXT NOT NULL DEFAULT '[]',
+        completed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    if (typeof createTasksStmt?.run === 'function') {
+      await createTasksStmt.run().catch(() => {});
+    } else if (typeof createTasksStmt?.bind === 'function') {
+      await createTasksStmt.bind().run().catch(() => {});
+    }
+
+    // 2. Safe non-destructive column additions (if table was created with an older schema)
+    const columnsToAdd = [
+      "ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE tasks ADD COLUMN qa_checklist TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE tasks ADD COLUMN qa_result TEXT NOT NULL DEFAULT 'not_started'",
+      "ALTER TABLE tasks ADD COLUMN qa_notes TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE tasks ADD COLUMN images TEXT NOT NULL DEFAULT '[]'",
+    ];
+
+    for (const sql of columnsToAdd) {
+      const stmt = db.prepare(sql);
+      if (typeof stmt?.run === 'function') {
+        await stmt.run().catch(() => {});
+      } else if (typeof stmt?.bind === 'function') {
+        await stmt.bind().run().catch(() => {});
       }
     }
 
-    if (!queryResult || !queryResult.results || queryResult.results.length === 0) {
-      // In tests or environments without PRAGMA support
-      return;
+    // 3. Ensure indexes exist safely
+    const idx1 = db.prepare('CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id)');
+    if (typeof idx1?.run === 'function') {
+      await idx1.run().catch(() => {});
+    } else if (typeof idx1?.bind === 'function') {
+      await idx1.bind().run().catch(() => {});
     }
 
-    const cols = queryResult.results.map((r) => r.name);
-
-    if (cols.length === 0) {
-      // Fresh database table creation
-      await db.prepare(`
-        CREATE TABLE IF NOT EXISTS tasks (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          project TEXT NOT NULL DEFAULT '',
-          title TEXT NOT NULL,
-          description TEXT NOT NULL DEFAULT '',
-          status TEXT NOT NULL DEFAULT 'backlog',
-          priority TEXT NOT NULL DEFAULT 'normal',
-          due_at TEXT,
-          qa_checklist TEXT NOT NULL DEFAULT '[]',
-          qa_result TEXT NOT NULL DEFAULT 'not_started',
-          qa_notes TEXT NOT NULL DEFAULT '',
-          images TEXT NOT NULL DEFAULT '[]',
-          completed_at TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        )
-      `).run();
-    } else if (!cols.includes('project') || !cols.includes('images') || !cols.includes('qa_result')) {
-      // Legacy schema migration: migrate data to tasks_new without constraint failures
-      await db.prepare(`
-        CREATE TABLE IF NOT EXISTS tasks_new (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          project TEXT NOT NULL DEFAULT '',
-          title TEXT NOT NULL,
-          description TEXT NOT NULL DEFAULT '',
-          status TEXT NOT NULL DEFAULT 'backlog',
-          priority TEXT NOT NULL DEFAULT 'normal',
-          due_at TEXT,
-          qa_checklist TEXT NOT NULL DEFAULT '[]',
-          qa_result TEXT NOT NULL DEFAULT 'not_started',
-          qa_notes TEXT NOT NULL DEFAULT '',
-          images TEXT NOT NULL DEFAULT '[]',
-          completed_at TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        )
-      `).run();
-
-      await db.prepare(`
-        INSERT OR IGNORE INTO tasks_new (
-          id, user_id, project, title, description, status, priority, due_at,
-          qa_checklist, qa_result, qa_notes, images, completed_at, created_at, updated_at
-        )
-        SELECT
-          id,
-          user_id,
-          COALESCE(project_id, 'Geral') AS project,
-          title,
-          description,
-          CASE
-            WHEN status = 'todo' THEN 'backlog'
-            WHEN status = 'doing' THEN 'in_progress'
-            WHEN status = 'ready_for_test' THEN 'qa'
-            WHEN status = 'done' THEN 'done'
-            ELSE 'backlog'
-          END AS status,
-          priority,
-          due_at,
-          COALESCE(checklist, '[]') AS qa_checklist,
-          'not_started' AS qa_result,
-          '' AS qa_notes,
-          '[]' AS images,
-          completed_at,
-          created_at,
-          updated_at
-        FROM tasks
-      `).run().catch(() => {});
-
-      await db.prepare('DROP TABLE tasks').run().catch(() => {});
-      await db.prepare('ALTER TABLE tasks_new RENAME TO tasks').run().catch(() => {});
+    const idx2 = db.prepare('CREATE INDEX IF NOT EXISTS idx_tasks_user_status ON tasks(user_id, status)');
+    if (typeof idx2?.run === 'function') {
+      await idx2.run().catch(() => {});
+    } else if (typeof idx2?.bind === 'function') {
+      await idx2.bind().run().catch(() => {});
     }
-
-    // Recreate indexes
-    await db.prepare('CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id)').run().catch(() => {});
-    await db.prepare('CREATE INDEX IF NOT EXISTS idx_tasks_user_status ON tasks(user_id, status)').run().catch(() => {});
 
     schemaEnsured = true;
   } catch (err) {

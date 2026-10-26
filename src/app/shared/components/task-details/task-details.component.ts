@@ -1747,7 +1747,7 @@ export class TaskDetailsComponent implements OnInit {
   // Workflow Action buttons
   transitionWorkflow(targetStatus: TaskStatus): void {
     this.status = targetStatus;
-    if (targetStatus === 'qa') {
+    if (targetStatus === 'in_progress' || (targetStatus as any) === 'doing' || targetStatus === 'qa') {
       this.qaResult = 'not_started';
     }
     this.markDirty();

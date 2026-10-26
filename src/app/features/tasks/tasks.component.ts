@@ -71,18 +71,10 @@ import { ProjectService } from '../../core/services/project.service';
                 <button
                   type="button"
                   class="filter-pill"
-                  [class.active]="statusFilter() === 'all'"
-                  (click)="setStatusFilter('all')"
-                >
-                  Todas ({{ totalCount() }})
-                </button>
-                <button
-                  type="button"
-                  class="filter-pill"
                   [class.active]="statusFilter() === 'backlog'"
                   (click)="setStatusFilter('backlog')"
                 >
-                  Backlog ({{ backlogTasks().length }})
+                  Backlog
                 </button>
                 <button
                   type="button"
@@ -90,7 +82,7 @@ import { ProjectService } from '../../core/services/project.service';
                   [class.active]="statusFilter() === 'in_progress' || statusFilter() === 'doing'"
                   (click)="setStatusFilter('in_progress')"
                 >
-                  Doing ({{ inProgressTasks().length }})
+                  Doing
                 </button>
                 <button
                   type="button"
@@ -98,7 +90,7 @@ import { ProjectService } from '../../core/services/project.service';
                   [class.active]="statusFilter() === 'qa'"
                   (click)="setStatusFilter('qa')"
                 >
-                  QA ({{ qaTasks().length }})
+                  QA
                 </button>
                 <button
                   type="button"
@@ -106,7 +98,15 @@ import { ProjectService } from '../../core/services/project.service';
                   [class.active]="statusFilter() === 'done'"
                   (click)="setStatusFilter('done')"
                 >
-                  Done ({{ doneCount() }})
+                  Done
+                </button>
+                <button
+                  type="button"
+                  class="filter-pill"
+                  [class.active]="statusFilter() === 'all'"
+                  (click)="setStatusFilter('all')"
+                >
+                  Todas
                 </button>
               </div>
 
@@ -141,7 +141,7 @@ import { ProjectService } from '../../core/services/project.service';
             </div>
           </div>
 
-          <!-- Tasks Sections View -->
+          <!-- Tasks Panel View -->
           <div class="tasks-container">
             @if (isLoading()) {
               <div class="skeleton-list" aria-busy="true">
@@ -164,171 +164,77 @@ import { ProjectService } from '../../core/services/project.service';
                   + Criar primeira tarefa
                 </button>
               </div>
-            } @else if (statusFilter() !== 'all') {
-              <!-- Single Filtered List View -->
-              <div class="task-list">
-                @for (task of filteredTasks(); track task.id) {
-                  <div
-                    class="task-row"
-                    [class.task-done]="task.status === 'done'"
-                    (click)="openTaskDetails(task)"
-                  >
-                    <div class="task-left">
-                      <span
-                        class="status-dot"
-                        [ngClass]="'status-' + task.status"
-                        [title]="getStatusLabel(task.status)"
-                      ></span>
-
-                      <!-- Reprovado chip if applicable -->
-                      @if (task.qa_result === 'rejected') {
-                        <span class="qa-flag-badge qa-flag-rejected" [title]="task.qa_notes || 'Reprovado'">✕ Reprovado</span>
-                      }
-                      <!-- Pendente chip if applicable -->
-                      @if (task.qa_result === 'pending') {
-                        <span class="qa-flag-badge qa-flag-pending" [title]="task.qa_notes || 'Pendente'">⚠ Pendente</span>
-                      }
-
-                      <span class="task-title">{{ task.title }}</span>
-                    </div>
-
-                    <div class="task-right">
-                      <!-- Project Tag Colored Chip -->
-                      @if (task.project) {
-                        <span
-                          class="project-chip"
-                          [style.borderColor]="getProjectColor(task.project)"
-                          [style.color]="getProjectColor(task.project)"
-                          [style.background]="getProjectColor(task.project) + '15'"
-                        >
-                          {{ task.project }}
-                        </span>
-                      }
-
-                      <!-- Quick Action Buttons -->
-                      @if (task.status === 'backlog') {
-                        <button
-                          type="button"
-                          class="btn-card-action btn-card-start"
-                          (click)="quickStartTask(task, $event)"
-                          title="Iniciar tarefa e abrir"
-                        >
-                          ▶ Iniciar
-                        </button>
-                      } @else if (task.status === 'in_progress') {
-                        <button
-                          type="button"
-                          class="btn-card-action btn-card-finish"
-                          (click)="quickFinishTask(task, $event)"
-                          title="Finalizar e enviar para QA"
-                        >
-                          Finalizar → QA
-                        </button>
-                      }
-
-                      @if (task.priority !== 'normal') {
-                        <span class="priority-tag" [ngClass]="'priority-' + task.priority">
-                          {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
-                        </span>
-                      }
-                      @if (task.due_at) {
-                        <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
-                          {{ formatDueDate(task.due_at) }}
-                        </span>
-                      }
-                    </div>
-                  </div>
-                }
-              </div>
             } @else {
-              <!-- 4 Vertical Workflow Sections: BACKLOG, IN PROGRESS, QA, DONE -->
-              <div class="workflow-sections">
-                <!-- Section 1: BACKLOG -->
-                <div class="workflow-section">
-                  <div class="section-title-bar">
-                    <span class="section-dot dot-backlog"></span>
-                    <span class="section-heading">BACKLOG</span>
-                    <span class="section-counter">({{ backlogTasks().length }})</span>
-                  </div>
-                  <div class="section-tasks">
-                    @for (task of backlogTasks(); track task.id) {
-                      <div class="task-row" (click)="openTaskDetails(task)">
-                        <div class="task-left">
-                          <!-- If previously rejected, show prominent Reprovado badge -->
-                          @if (task.qa_result === 'rejected') {
-                            <span class="qa-flag-badge qa-flag-rejected" [title]="task.qa_notes || 'Reprovado no QA'">✕ Reprovado</span>
-                          }
-                          <span class="task-title">{{ task.title }}</span>
-                        </div>
-                        <div class="task-right">
-                          @if (task.project) {
-                            <span
-                              class="project-chip"
-                              [style.borderColor]="getProjectColor(task.project)"
-                              [style.color]="getProjectColor(task.project)"
-                              [style.background]="getProjectColor(task.project) + '15'"
-                            >
-                              {{ task.project }}
-                            </span>
-                          }
-                          <!-- Quick Start Button -->
+              <!-- Clean Flat Task List with Section Header -->
+              <div class="tasks-panel">
+                <div class="panel-header">
+                  <span class="section-dot" [ngClass]="'dot-' + (statusFilter() === 'all' ? 'all' : statusFilter())"></span>
+                  <span class="section-heading">{{ getSectionHeading() }}</span>
+                </div>
+
+                <div class="task-list">
+                  @for (task of filteredTasks(); track task.id) {
+                    <div
+                      class="task-row"
+                      [class.task-done]="task.status === 'done'"
+                      [class.highlight-qa]="task.status === 'qa'"
+                      (click)="openTaskDetails(task)"
+                    >
+                      <div class="task-left">
+                        <span
+                          class="status-dot"
+                          [ngClass]="'status-' + task.status"
+                          [title]="getStatusLabel(task.status)"
+                        ></span>
+
+                        <!-- Reprovado chip if applicable -->
+                        @if (task.qa_result === 'rejected') {
+                          <span class="qa-flag-badge qa-flag-rejected" [title]="task.qa_notes || 'Reprovado'">✕ Reprovado</span>
+                        }
+                        <!-- Pendente chip if applicable -->
+                        @if (task.qa_result === 'pending') {
+                          <span class="qa-flag-badge qa-flag-pending" [title]="task.qa_notes || 'Pendente'">⚠ Pendente</span>
+                        }
+
+                        <span class="task-title">{{ task.title }}</span>
+                      </div>
+
+                      <div class="task-right">
+                        <!-- Project Tag Colored Chip -->
+                        @if (task.project) {
+                          <span
+                            class="project-chip"
+                            [style.borderColor]="getProjectColor(task.project)"
+                            [style.color]="getProjectColor(task.project)"
+                            [style.background]="getProjectColor(task.project) + '15'"
+                          >
+                            {{ task.project }}
+                          </span>
+                        }
+
+                        <!-- If on "Todas" tab, show status navigation button to jump directly and open in inspector -->
+                        @if (statusFilter() === 'all') {
+                          <button
+                            type="button"
+                            class="btn-status-nav"
+                            [ngClass]="'status-nav-' + task.status"
+                            (click)="jumpToStatus(task, task.status, $event)"
+                            [title]="'Ver no ' + getStatusLabel(task.status) + ' e abrir detalhes'"
+                          >
+                            {{ getStatusLabel(task.status) }} →
+                          </button>
+                        } @else if (task.status === 'backlog') {
+                          <!-- Quick Start Action on Backlog -->
                           <button
                             type="button"
                             class="btn-card-action btn-card-start"
                             (click)="quickStartTask(task, $event)"
-                            title="Iniciar tarefa agora e abrir"
+                            title="Iniciar tarefa e abrir"
                           >
                             ▶ Iniciar
                           </button>
-
-                          @if (task.priority !== 'normal') {
-                            <span class="priority-tag" [ngClass]="'priority-' + task.priority">
-                              {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
-                            </span>
-                          }
-                          @if (task.due_at) {
-                            <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
-                              {{ formatDueDate(task.due_at) }}
-                            </span>
-                          }
-                        </div>
-                      </div>
-                    }
-                    @if (backlogTasks().length === 0) {
-                      <div class="section-empty">Nenhuma tarefa no backlog</div>
-                    }
-                  </div>
-                </div>
-
-                <!-- Section 2: DOING -->
-                <div class="workflow-section">
-                  <div class="section-title-bar">
-                    <span class="section-dot dot-in-progress"></span>
-                    <span class="section-heading">DOING</span>
-                    <span class="section-counter">({{ inProgressTasks().length }})</span>
-                  </div>
-                  <div class="section-tasks">
-                    @for (task of inProgressTasks(); track task.id) {
-                      <div class="task-row" (click)="openTaskDetails(task)">
-                        <div class="task-left">
-                          <!-- If marked pending in QA, show Pendente badge -->
-                          @if (task.qa_result === 'pending') {
-                            <span class="qa-flag-badge qa-flag-pending" [title]="task.qa_notes || 'Pendente em QA'">⚠ Pendente</span>
-                          }
-                          <span class="task-title">{{ task.title }}</span>
-                        </div>
-                        <div class="task-right">
-                          @if (task.project) {
-                            <span
-                              class="project-chip"
-                              [style.borderColor]="getProjectColor(task.project)"
-                              [style.color]="getProjectColor(task.project)"
-                              [style.background]="getProjectColor(task.project) + '15'"
-                            >
-                              {{ task.project }}
-                            </span>
-                          }
-                          <!-- Quick Finish to QA Button -->
+                        } @else if (task.status === 'in_progress' || task.status === 'doing') {
+                          <!-- Quick Finish to QA Action on Doing -->
                           <button
                             type="button"
                             class="btn-card-action btn-card-finish"
@@ -337,104 +243,25 @@ import { ProjectService } from '../../core/services/project.service';
                           >
                             Finalizar → QA
                           </button>
-
-                          @if (task.priority !== 'normal') {
-                            <span class="priority-tag" [ngClass]="'priority-' + task.priority">
-                              {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
-                            </span>
-                          }
-                          @if (task.due_at) {
-                            <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
-                              {{ formatDueDate(task.due_at) }}
-                            </span>
-                          }
-                        </div>
-                      </div>
-                    }
-                    @if (inProgressTasks().length === 0) {
-                      <div class="section-empty">Nenhuma tarefa em doing</div>
-                    }
-                  </div>
-                </div>
-
-                <!-- Section 3: QA -->
-                <div class="workflow-section section-qa">
-                  <div class="section-title-bar">
-                    <span class="section-dot dot-qa"></span>
-                    <span class="section-heading">QA</span>
-                    <span class="section-counter">({{ qaTasks().length }})</span>
-                  </div>
-                  <div class="section-tasks">
-                    @for (task of qaTasks(); track task.id) {
-                      <div class="task-row highlight-qa" (click)="openTaskDetails(task)">
-                        <div class="task-left">
+                        } @else if (task.status === 'qa') {
                           <span class="qa-state-pill">
                             {{ task.qa_result === 'approved' ? 'Aprovado' : task.qa_result === 'rejected' ? 'Reprovado' : 'Aguardando QA' }}
                           </span>
-                          <span class="task-title">{{ task.title }}</span>
-                        </div>
-                        <div class="task-right">
-                          @if (task.project) {
-                            <span
-                              class="project-chip"
-                              [style.borderColor]="getProjectColor(task.project)"
-                              [style.color]="getProjectColor(task.project)"
-                              [style.background]="getProjectColor(task.project) + '15'"
-                            >
-                              {{ task.project }}
-                            </span>
-                          }
-                          @if (task.priority !== 'normal') {
-                            <span class="priority-tag" [ngClass]="'priority-' + task.priority">
-                              {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
-                            </span>
-                          }
-                          @if (task.due_at) {
-                            <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
-                              {{ formatDueDate(task.due_at) }}
-                            </span>
-                          }
-                        </div>
-                      </div>
-                    }
-                    @if (qaTasks().length === 0) {
-                      <div class="section-empty">Nenhuma tarefa em QA</div>
-                    }
-                  </div>
-                </div>
+                        }
 
-                <!-- Section 4: DONE -->
-                <div class="workflow-section">
-                  <div class="section-title-bar">
-                    <span class="section-dot dot-done"></span>
-                    <span class="section-heading">DONE</span>
-                    <span class="section-counter">({{ doneTasks().length }})</span>
-                  </div>
-                  <div class="section-tasks">
-                    @for (task of doneTasks(); track task.id) {
-                      <div class="task-row task-done" (click)="openTaskDetails(task)">
-                        <div class="task-left">
-                          <span class="task-done-check">✓</span>
-                          <span class="task-title">{{ task.title }}</span>
-                        </div>
-                        <div class="task-right">
-                          @if (task.project) {
-                            <span
-                              class="project-chip"
-                              [style.borderColor]="getProjectColor(task.project)"
-                              [style.color]="getProjectColor(task.project)"
-                              [style.background]="getProjectColor(task.project) + '15'"
-                            >
-                              {{ task.project }}
-                            </span>
-                          }
-                        </div>
+                        @if (task.priority !== 'normal') {
+                          <span class="priority-tag" [ngClass]="'priority-' + task.priority">
+                            {{ task.priority === 'high' ? 'Alta' : 'Baixa' }}
+                          </span>
+                        }
+                        @if (task.due_at) {
+                          <span class="due-tag" [class.overdue]="isOverdue(task.due_at)">
+                            {{ formatDueDate(task.due_at) }}
+                          </span>
+                        }
                       </div>
-                    }
-                    @if (doneTasks().length === 0) {
-                      <div class="section-empty">Nenhuma tarefa concluída</div>
-                    }
-                  </div>
+                    </div>
+                  }
                 </div>
               </div>
             }
@@ -588,7 +415,37 @@ import { ProjectService } from '../../core/services/project.service';
     .secondary-filters {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.65rem;
+    }
+
+    .select-compact {
+      width: auto;
+      min-width: 165px;
+      padding: 0.4rem 2.2rem 0.4rem 0.85rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background-color: var(--surface-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      white-space: nowrap;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.75rem center;
+      appearance: none;
+      -webkit-appearance: none;
+      transition: all var(--transition-fast);
+    }
+
+    .select-compact:hover {
+      border-color: var(--text-muted);
+      color: var(--text);
+    }
+
+    .select-compact:focus {
+      border-color: var(--primary);
+      outline: none;
     }
 
     /* Workflow Sections: BACKLOG, IN PROGRESS, QA, DONE */
@@ -609,11 +466,19 @@ import { ProjectService } from '../../core/services/project.service';
       border-color: rgba(245, 158, 11, 0.3);
     }
 
-    .section-title-bar {
+    /* Tasks Panel */
+    .tasks-panel {
+      background: #14141E;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .panel-header {
       display: flex;
       align-items: center;
       gap: 0.65rem;
-      padding: 0.65rem 1rem;
+      padding: 0.75rem 1.15rem;
       background: #171725;
       border-bottom: 1px solid var(--border);
     }
@@ -636,8 +501,9 @@ import { ProjectService } from '../../core/services/project.service';
       border-radius: 50%;
     }
 
+    .dot-all { background: #8B5CF6; }
     .dot-backlog { background: #94A3B8; }
-    .dot-in-progress { background: #3B82F6; }
+    .dot-in-progress, .dot-doing { background: #3B82F6; }
     .dot-qa { background: #F59E0B; }
     .dot-done { background: #10B981; }
 
@@ -847,6 +713,61 @@ import { ProjectService } from '../../core/services/project.service';
       border-color: rgba(239, 68, 68, 0.3);
     }
 
+    /* Status Navigation Button (in "Todas" view) */
+    .btn-status-nav {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all var(--transition-fast);
+      white-space: nowrap;
+    }
+
+    .status-nav-backlog {
+      background: rgba(148, 163, 184, 0.15);
+      border-color: rgba(148, 163, 184, 0.35);
+      color: #CBD5E1;
+    }
+    .status-nav-backlog:hover {
+      background: rgba(148, 163, 184, 0.3);
+      color: #FFFFFF;
+    }
+
+    .status-nav-in_progress, .status-nav-doing {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.35);
+      color: #93C5FD;
+    }
+    .status-nav-in_progress:hover, .status-nav-doing:hover {
+      background: rgba(59, 130, 246, 0.3);
+      color: #FFFFFF;
+    }
+
+    .status-nav-qa {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: rgba(245, 158, 11, 0.35);
+      color: #FCD34D;
+    }
+    .status-nav-qa:hover {
+      background: rgba(245, 158, 11, 0.3);
+      color: #FFFFFF;
+    }
+
+    .status-nav-done {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.35);
+      color: #6EE7B7;
+    }
+    .status-nav-done:hover {
+      background: rgba(16, 185, 129, 0.3);
+      color: #FFFFFF;
+    }
+
     /* Empty State */
     .empty-state {
       text-align: center;
@@ -927,7 +848,7 @@ export class TasksComponent implements OnInit {
   // UI state
   isLoading = signal(true);
   searchQuery = signal('');
-  statusFilter = signal<TaskStatus | 'all'>('all');
+  statusFilter = signal<TaskStatus | 'all'>('backlog');
   priorityFilter = signal<TaskPriority | 'all'>('all');
   sortBy = signal<'recent' | 'oldest' | 'due_date' | 'priority'>('recent');
 
@@ -1061,12 +982,13 @@ export class TasksComponent implements OnInit {
     this.isCreatingTask.set(false);
   }
 
-  // Quick Action: Iniciar on Backlog card (moves to in_progress, saves, and opens inspector)
+  // Quick Action: Iniciar on Backlog card (moves to in_progress, resets qa_result, saves, and opens inspector)
   async quickStartTask(task: Task, event: MouseEvent): Promise<void> {
     event.stopPropagation();
     try {
       const updated = await this.taskService.updateTask(task.id, {
         status: 'in_progress',
+        qa_result: 'not_started',
       });
       this.allTasks.update((list) =>
         list.map((t) => (t.id === updated.id ? updated : t))
@@ -1076,6 +998,25 @@ export class TasksComponent implements OnInit {
       this.openTaskDetails(updated);
     } catch (err: any) {
       this.toast.error(err.message || 'Erro ao iniciar tarefa.');
+    }
+  }
+
+  jumpToStatus(task: Task, status: TaskStatus, event: MouseEvent): void {
+    event.stopPropagation();
+    const targetStatus = (status as any) === 'doing' ? 'in_progress' : status;
+    this.setStatusFilter(targetStatus);
+    this.openTaskDetails(task);
+  }
+
+  getSectionHeading(): string {
+    switch (this.statusFilter()) {
+      case 'backlog': return 'BACKLOG';
+      case 'in_progress':
+      case 'doing': return 'DOING';
+      case 'qa': return 'QA';
+      case 'done': return 'DONE';
+      case 'all': return 'TODAS AS TAREFAS';
+      default: return 'TAREFAS';
     }
   }
 

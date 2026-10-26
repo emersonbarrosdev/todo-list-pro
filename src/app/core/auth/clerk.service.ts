@@ -241,8 +241,19 @@ export class ClerkService {
   }
 
   async getToken(): Promise<string | null> {
+    await this.initialize();
     if (this.clerkInstance?.session) {
       return this.clerkInstance.session.getToken();
+    }
+    if (this.clerkInstance && this.state().loading) {
+      let waitMs = 0;
+      while (this.state().loading && waitMs < 1500) {
+        await new Promise((r) => setTimeout(r, 50));
+        waitMs += 50;
+      }
+      if (this.clerkInstance.session) {
+        return this.clerkInstance.session.getToken();
+      }
     }
     const mockUser = this.currentUser();
     if (mockUser) {

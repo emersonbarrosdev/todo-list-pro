@@ -87,9 +87,10 @@ describe('TasksComponent', () => {
     };
 
     component.selectedProjectId.set('all');
+    component.setStatusFilter('all');
     component.allTasks.set([t1, t2, t3]);
 
-    // Initial: all 3
+    // When statusFilter is 'all': all 3
     expect(component.filteredTasks().length).toBe(3);
 
     // Filter 'ready_for_test' in memory
