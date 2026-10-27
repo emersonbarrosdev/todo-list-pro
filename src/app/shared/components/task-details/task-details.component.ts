@@ -146,36 +146,73 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
               ></textarea>
             </div>
 
-            <!-- Imagens & Prints anexados na Criação -->
+            <!-- Prints & Imagens Anexadas na Criação -->
             <div class="form-group images-create-group">
               <div class="images-header">
-                <label class="form-label mb-0">Prints & Imagens ({{ images.length }})</label>
-                <label class="btn btn-secondary btn-xs btn-add-img">
-                  <span>+ Anexar print/imagem</span>
-                  <input type="file" accept="image/*" multiple class="sr-only" (change)="onFileSelected($event)" />
-                </label>
+                <label class="form-label mb-0">Prints & Telas da Tarefa ({{ images.length }})</label>
+                <div class="image-actions-bar">
+                  @if (justPastedMessage()) {
+                    <span class="paste-feedback-badge">
+                      ✓ {{ justPastedMessage() }}
+                    </span>
+                  }
+                  <label class="btn btn-secondary btn-xs btn-browse-files" title="Procurar arquivo de imagem no computador">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                    </svg>
+                    <span>Escolher arquivo</span>
+                    <input type="file" accept="image/*" multiple class="sr-only" (change)="onFileSelected($event)" />
+                  </label>
+                </div>
               </div>
 
-              <!-- Dropzone / Cole prints com Ctrl+V -->
+              <!-- Campo Dedicado de Captura de Print e Drop -->
               <div
-                class="image-dropzone"
+                #pasteZoneNew
+                class="paste-capture-box"
+                [class.focused]="isPasteZoneFocused()"
                 [class.dragover]="isDragging()"
+                (click)="focusPasteZone(pasteZoneNew)"
+                (focus)="isPasteZoneFocused.set(true)"
+                (blur)="isPasteZoneFocused.set(false)"
                 (dragover)="onDragOver($event)"
                 (dragleave)="onDragLeave($event)"
                 (drop)="onDrop($event)"
-                (click)="dropFileInputNew.click()"
-                role="button"
                 tabindex="0"
-                title="Clique para anexar ou arraste imagens / cole prints com Ctrl+V"
+                role="region"
+                aria-label="Campo para colar print com Ctrl+V ou arrastar imagem"
               >
-                <input #dropFileInputNew type="file" accept="image/*" multiple class="sr-only" (change)="onFileSelected($event)" />
-                <div class="dropzone-hint">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                    <polyline points="21 15 16 10 5 21"></polyline>
-                  </svg>
-                  <span>Arraste imagens aqui, clique para anexar ou <strong>cole prints com Ctrl+V</strong></span>
+                <div class="paste-box-content">
+                  <div class="paste-icon-badge" [class.active]="isPasteZoneFocused()">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                      <circle cx="12" cy="14" r="3"></circle>
+                    </svg>
+                  </div>
+                  
+                  <div class="paste-box-text">
+                    @if (isPasteZoneFocused()) {
+                      <div class="paste-status active">
+                        <span class="status-pulse-dot"></span>
+                        <strong>Campo ativo! Pressione <kbd>Ctrl</kbd> + <kbd>V</kbd> para colar</strong>
+                      </div>
+                    } @else {
+                      <div class="paste-status">
+                        <strong>Clique neste campo e pressione <kbd>Ctrl</kbd> + <kbd>V</kbd> para colar o print</strong>
+                      </div>
+                    }
+                    <span class="paste-subtext">Ou arraste arquivos de imagem diretamente para esta área</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="btn-paste-clipboard"
+                    (click)="handlePasteButtonClick($event)"
+                    title="Colar print diretamente da área de transferência"
+                  >
+                    <span>📋 Colar print</span>
+                  </button>
                 </div>
               </div>
 
@@ -183,8 +220,9 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
               @if (images.length > 0) {
                 <div class="images-gallery">
                   @for (img of images; track $index; let idx = $index) {
-                    <div class="thumbnail-wrapper" (click)="openLightbox(img)" title="Clique para ampliar">
+                    <div class="thumbnail-wrapper" (click)="openLightbox(img)" title="Clique para ampliar o print">
                       <img [src]="img" alt="Print da tarefa" class="task-thumbnail" />
+                      <span class="thumb-index-tag">#{{ idx + 1 }}</span>
                       <button
                         type="button"
                         class="btn-remove-thumb"
@@ -550,32 +588,69 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
             <div class="field-block images-block">
               <div class="images-header">
                 <span class="field-label">Prints & Imagens ({{ images.length }})</span>
-                <label class="btn btn-secondary btn-xs btn-add-img">
-                  <span>+ Anexar print/imagem</span>
-                  <input type="file" accept="image/*" multiple class="sr-only" (change)="onFileSelected($event)" />
-                </label>
+                <div class="image-actions-bar">
+                  @if (justPastedMessage()) {
+                    <span class="paste-feedback-badge">
+                      ✓ {{ justPastedMessage() }}
+                    </span>
+                  }
+                  <label class="btn btn-secondary btn-xs btn-browse-files" title="Procurar arquivo de imagem no computador">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                    </svg>
+                    <span>Escolher arquivo</span>
+                    <input type="file" accept="image/*" multiple class="sr-only" (change)="onFileSelected($event)" />
+                  </label>
+                </div>
               </div>
 
-              <!-- Dropzone / Cole prints com Ctrl+V -->
+              <!-- Campo Dedicado de Captura de Print e Drop -->
               <div
-                class="image-dropzone"
+                #pasteZoneEdit
+                class="paste-capture-box"
+                [class.focused]="isPasteZoneFocused()"
                 [class.dragover]="isDragging()"
+                (click)="focusPasteZone(pasteZoneEdit)"
+                (focus)="isPasteZoneFocused.set(true)"
+                (blur)="isPasteZoneFocused.set(false)"
                 (dragover)="onDragOver($event)"
                 (dragleave)="onDragLeave($event)"
                 (drop)="onDrop($event)"
-                (click)="dropFileInputEdit.click()"
-                role="button"
                 tabindex="0"
-                title="Clique para anexar ou arraste imagens / cole prints com Ctrl+V"
+                role="region"
+                aria-label="Campo para colar print com Ctrl+V ou arrastar imagem"
               >
-                <input #dropFileInputEdit type="file" accept="image/*" multiple class="sr-only" (change)="onFileSelected($event)" />
-                <div class="dropzone-hint">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                    <polyline points="21 15 16 10 5 21"></polyline>
-                  </svg>
-                  <span>Arraste imagens ou <strong>cole prints com Ctrl+V</strong></span>
+                <div class="paste-box-content">
+                  <div class="paste-icon-badge" [class.active]="isPasteZoneFocused()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                      <circle cx="12" cy="14" r="3"></circle>
+                    </svg>
+                  </div>
+                  
+                  <div class="paste-box-text">
+                    @if (isPasteZoneFocused()) {
+                      <div class="paste-status active">
+                        <span class="status-pulse-dot"></span>
+                        <strong>Campo ativo! Pressione <kbd>Ctrl</kbd> + <kbd>V</kbd> para colar</strong>
+                      </div>
+                    } @else {
+                      <div class="paste-status">
+                        <strong>Clique neste campo e pressione <kbd>Ctrl</kbd> + <kbd>V</kbd> para colar o print</strong>
+                      </div>
+                    }
+                    <span class="paste-subtext">Ou arraste prints/imagens diretamente para esta área</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="btn-paste-clipboard"
+                    (click)="handlePasteButtonClick($event)"
+                    title="Colar print diretamente da área de transferência"
+                  >
+                    <span>📋 Colar print</span>
+                  </button>
                 </div>
               </div>
 
@@ -583,8 +658,9 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
               @if (images.length > 0) {
                 <div class="images-gallery">
                   @for (img of images; track $index; let idx = $index) {
-                    <div class="thumbnail-wrapper" (click)="openLightbox(img)" title="Clique para ampliar">
+                    <div class="thumbnail-wrapper" (click)="openLightbox(img)" title="Clique para ampliar o print">
                       <img [src]="img" alt="Anexo da tarefa" class="task-thumbnail" />
+                      <span class="thumb-index-tag">#{{ idx + 1 }}</span>
                       <button
                         type="button"
                         class="btn-remove-thumb"
@@ -1351,34 +1427,168 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       gap: 0.6rem;
     }
 
-    .image-dropzone {
-      border: 1.5px dashed rgba(167, 139, 250, 0.3);
-      background: rgba(167, 139, 250, 0.03);
-      border-radius: var(--radius-sm, 6px);
-      padding: 0.75rem 0.85rem;
-      text-align: center;
+    kbd {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 4px;
+      padding: 0.1rem 0.35rem;
+      font-size: 0.75rem;
+      font-family: inherit;
+      color: #E2E8F0;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+
+    .paste-capture-box {
+      border: 1.5px dashed rgba(167, 139, 250, 0.35);
+      background: rgba(167, 139, 250, 0.04);
+      border-radius: var(--radius-sm, 8px);
+      padding: 0.85rem 1rem;
       transition: all var(--transition-fast);
       cursor: pointer;
+      outline: none;
     }
 
-    .image-dropzone:hover,
-    .image-dropzone.dragover {
-      border-color: var(--primary);
-      background: rgba(139, 92, 246, 0.08);
+    .paste-capture-box:hover,
+    .paste-capture-box.focused,
+    .paste-capture-box:focus {
+      border-color: var(--primary, #8B5CF6);
+      background: rgba(139, 92, 246, 0.1);
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.25);
     }
 
-    .dropzone-hint {
+    .paste-capture-box.dragover {
+      border-color: #34D399;
+      background: rgba(16, 185, 129, 0.12);
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.3);
+    }
+
+    .paste-box-content {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .paste-icon-badge {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: rgba(139, 92, 246, 0.15);
+      color: #C4B5FD;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 0.5rem;
+      flex-shrink: 0;
+      transition: all var(--transition-fast);
+    }
+
+    .paste-icon-badge.active {
+      background: var(--primary);
+      color: #FFFFFF;
+      box-shadow: 0 2px 10px rgba(139, 92, 246, 0.4);
+    }
+
+    .paste-box-text {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .paste-status {
       font-size: 0.8125rem;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .paste-status.active {
+      color: #C4B5FD;
+    }
+
+    .status-pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #34D399;
+      box-shadow: 0 0 6px #34D399;
+      animation: pulse 1.2s infinite;
+      display: inline-block;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    .paste-subtext {
+      font-size: 0.75rem;
       color: var(--text-muted);
     }
 
-    .dropzone-hint strong {
-      color: var(--primary-light, #C4B5FD);
+    .btn-paste-clipboard {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.75rem;
+      background: rgba(139, 92, 246, 0.2);
+      border: 1px solid rgba(139, 92, 246, 0.4);
+      border-radius: var(--radius-sm);
+      color: #E2E8F0;
+      font-size: 0.75rem;
       font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all var(--transition-fast);
+    }
+
+    .btn-paste-clipboard:hover {
+      background: var(--primary);
+      color: #FFFFFF;
+      border-color: var(--primary);
+    }
+
+    .image-actions-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+    }
+
+    .btn-browse-files {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .paste-feedback-badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #34D399;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      animation: fadeIn 0.15s ease-out;
+    }
+
+    .thumb-index-tag {
+      position: absolute;
+      bottom: 2px;
+      left: 2px;
+      background: rgba(0, 0, 0, 0.75);
+      color: #E2E8F0;
+      font-size: 0.625rem;
+      font-weight: 700;
+      padding: 0.05rem 0.3rem;
+      border-radius: 3px;
+      pointer-events: none;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-2px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
     .mb-0 {
@@ -1705,6 +1915,8 @@ export class TaskDetailsComponent implements OnInit {
 
   newQaItemText = '';
   isDragging = signal(false);
+  isPasteZoneFocused = signal(false);
+  justPastedMessage = signal<string | null>(null);
   showMarkdownPreview = signal(false);
   accordionOpen = signal(true);
   lightboxImage = signal<string | null>(null);
@@ -1861,18 +2073,76 @@ export class TaskDetailsComponent implements OnInit {
     }
   }
 
-  // Global clipboard paste handler (Ctrl+V)
+  focusPasteZone(targetEl?: HTMLElement): void {
+    this.isPasteZoneFocused.set(true);
+    if (targetEl) {
+      targetEl.focus();
+    }
+  }
+
+  showPastedFeedback(msg: string): void {
+    this.justPastedMessage.set(msg);
+    setTimeout(() => {
+      if (this.justPastedMessage() === msg) {
+        this.justPastedMessage.set(null);
+      }
+    }, 2800);
+  }
+
+  // Quick button handler for reading from clipboard via Clipboard API
+  async handlePasteButtonClick(event: MouseEvent): Promise<void> {
+    event.stopPropagation();
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.read === 'function') {
+        const items = await navigator.clipboard.read();
+        let found = false;
+        for (const item of items) {
+          for (const type of item.types) {
+            if (type.startsWith('image/')) {
+              const blob = await item.getType(type);
+              const file = new File([blob], `print-${Date.now()}.png`, { type });
+              this.processImageFile(file);
+              found = true;
+              this.showPastedFeedback('Print colado com sucesso!');
+              break;
+            }
+          }
+        }
+        if (found) return;
+      }
+    } catch {
+      // Permission blocked or unsupported, fallback to focus paste zone
+    }
+    this.focusPasteZone();
+  }
+
+  // Global & field clipboard paste handler (Ctrl+V)
   @HostListener('document:paste', ['$event'])
   handlePaste(event: ClipboardEvent): void {
     const clipboardData = event.clipboardData;
-    if (!clipboardData || !clipboardData.items) return;
+    if (!clipboardData) return;
 
     let hasImage = false;
-    for (let i = 0; i < clipboardData.items.length; i++) {
-      const item = clipboardData.items[i];
-      if (item.type && item.type.startsWith('image/')) {
-        const file = item.getAsFile();
-        if (file) {
+
+    // 1. Check clipboard items
+    if (clipboardData.items) {
+      for (let i = 0; i < clipboardData.items.length; i++) {
+        const item = clipboardData.items[i];
+        if (item.type && item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            hasImage = true;
+            this.processImageFile(file);
+          }
+        }
+      }
+    }
+
+    // 2. Check clipboard files fallback (Snipping Tool, Paint, Windows clipboard)
+    if (!hasImage && clipboardData.files && clipboardData.files.length > 0) {
+      for (let i = 0; i < clipboardData.files.length; i++) {
+        const file = clipboardData.files[i];
+        if (file.type && file.type.startsWith('image/')) {
           hasImage = true;
           this.processImageFile(file);
         }
@@ -1882,6 +2152,7 @@ export class TaskDetailsComponent implements OnInit {
     if (hasImage) {
       event.preventDefault();
       event.stopPropagation();
+      this.showPastedFeedback('Print colado com sucesso!');
     }
   }
 
