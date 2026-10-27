@@ -145,6 +145,59 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
                 rows="4"
               ></textarea>
             </div>
+
+            <!-- Imagens & Prints anexados na Criação -->
+            <div class="form-group images-create-group">
+              <div class="images-header">
+                <label class="form-label mb-0">Prints & Imagens ({{ images.length }})</label>
+                <label class="btn btn-secondary btn-xs btn-add-img">
+                  <span>+ Anexar print/imagem</span>
+                  <input type="file" accept="image/*" multiple class="sr-only" (change)="onFileSelected($event)" />
+                </label>
+              </div>
+
+              <!-- Dropzone / Cole prints com Ctrl+V -->
+              <div
+                class="image-dropzone"
+                [class.dragover]="isDragging()"
+                (dragover)="onDragOver($event)"
+                (dragleave)="onDragLeave($event)"
+                (drop)="onDrop($event)"
+                (click)="dropFileInputNew.click()"
+                role="button"
+                tabindex="0"
+                title="Clique para anexar ou arraste imagens / cole prints com Ctrl+V"
+              >
+                <input #dropFileInputNew type="file" accept="image/*" multiple class="sr-only" (change)="onFileSelected($event)" />
+                <div class="dropzone-hint">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                    <polyline points="21 15 16 10 5 21"></polyline>
+                  </svg>
+                  <span>Arraste imagens aqui, clique para anexar ou <strong>cole prints com Ctrl+V</strong></span>
+                </div>
+              </div>
+
+              <!-- Thumbnails Gallery in Creation Modal -->
+              @if (images.length > 0) {
+                <div class="images-gallery">
+                  @for (img of images; track $index; let idx = $index) {
+                    <div class="thumbnail-wrapper" (click)="openLightbox(img)" title="Clique para ampliar">
+                      <img [src]="img" alt="Print da tarefa" class="task-thumbnail" />
+                      <button
+                        type="button"
+                        class="btn-remove-thumb"
+                        (click)="removeImage(idx, $event)"
+                        title="Remover anexo"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
           </div>
 
           <div class="modal-footer">
@@ -493,21 +546,44 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
               }
             </div>
 
-            <!-- Image Attachments Section (Thumbnails + Lightbox) -->
+            <!-- Image Attachments Section (Thumbnails + Lightbox + Dropzone) -->
             <div class="field-block images-block">
               <div class="images-header">
-                <span class="field-label">Imagens & Anexos ({{ images.length }})</span>
+                <span class="field-label">Prints & Imagens ({{ images.length }})</span>
                 <label class="btn btn-secondary btn-xs btn-add-img">
-                  <span>+ Adicionar imagem</span>
-                  <input type="file" accept="image/*" class="sr-only" (change)="onFileSelected($event)" />
+                  <span>+ Anexar print/imagem</span>
+                  <input type="file" accept="image/*" multiple class="sr-only" (change)="onFileSelected($event)" />
                 </label>
+              </div>
+
+              <!-- Dropzone / Cole prints com Ctrl+V -->
+              <div
+                class="image-dropzone"
+                [class.dragover]="isDragging()"
+                (dragover)="onDragOver($event)"
+                (dragleave)="onDragLeave($event)"
+                (drop)="onDrop($event)"
+                (click)="dropFileInputEdit.click()"
+                role="button"
+                tabindex="0"
+                title="Clique para anexar ou arraste imagens / cole prints com Ctrl+V"
+              >
+                <input #dropFileInputEdit type="file" accept="image/*" multiple class="sr-only" (change)="onFileSelected($event)" />
+                <div class="dropzone-hint">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                    <polyline points="21 15 16 10 5 21"></polyline>
+                  </svg>
+                  <span>Arraste imagens ou <strong>cole prints com Ctrl+V</strong></span>
+                </div>
               </div>
 
               <!-- Thumbnails Gallery -->
               @if (images.length > 0) {
                 <div class="images-gallery">
                   @for (img of images; track $index; let idx = $index) {
-                    <div class="thumbnail-wrapper" (click)="openLightbox(img)">
+                    <div class="thumbnail-wrapper" (click)="openLightbox(img)" title="Clique para ampliar">
                       <img [src]="img" alt="Anexo da tarefa" class="task-thumbnail" />
                       <button
                         type="button"
@@ -665,8 +741,9 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      width: 90%;
-      max-width: 540px;
+      width: 92%;
+      max-width: 580px;
+      max-height: 90vh;
       background: #14141E;
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: var(--radius-lg, 12px);
@@ -719,7 +796,7 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
       display: flex;
       flex-direction: column;
       gap: 1rem;
-      max-height: 70vh;
+      max-height: calc(90vh - 140px);
       overflow-y: auto;
     }
 
@@ -1265,7 +1342,47 @@ import { SafeMarkdownPipe } from '../../pipes/safe-markdown.pipe';
     .images-block {
       display: flex;
       flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .images-create-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .image-dropzone {
+      border: 1.5px dashed rgba(167, 139, 250, 0.3);
+      background: rgba(167, 139, 250, 0.03);
+      border-radius: var(--radius-sm, 6px);
+      padding: 0.75rem 0.85rem;
+      text-align: center;
+      transition: all var(--transition-fast);
+      cursor: pointer;
+    }
+
+    .image-dropzone:hover,
+    .image-dropzone.dragover {
+      border-color: var(--primary);
+      background: rgba(139, 92, 246, 0.08);
+    }
+
+    .dropzone-hint {
+      display: flex;
+      align-items: center;
+      justify-content: center;
       gap: 0.5rem;
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+    }
+
+    .dropzone-hint strong {
+      color: var(--primary-light, #C4B5FD);
+      font-weight: 600;
+    }
+
+    .mb-0 {
+      margin-bottom: 0 !important;
     }
 
     .btn-add-img {
@@ -1587,6 +1704,7 @@ export class TaskDetailsComponent implements OnInit {
   images: string[] = [];
 
   newQaItemText = '';
+  isDragging = signal(false);
   showMarkdownPreview = signal(false);
   accordionOpen = signal(true);
   lightboxImage = signal<string | null>(null);
@@ -1716,21 +1834,121 @@ export class TaskDetailsComponent implements OnInit {
     this.markDirty();
   }
 
-  // File picker handler for image upload
+  // Drag & drop handlers
+  onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragging.set(true);
+  }
+
+  onDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragging.set(false);
+  }
+
+  onDrop(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isDragging.set(false);
+    if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+      for (let i = 0; i < event.dataTransfer.files.length; i++) {
+        const file = event.dataTransfer.files[i];
+        if (file.type.startsWith('image/')) {
+          this.processImageFile(file);
+        }
+      }
+    }
+  }
+
+  // Global clipboard paste handler (Ctrl+V)
+  @HostListener('document:paste', ['$event'])
+  handlePaste(event: ClipboardEvent): void {
+    const clipboardData = event.clipboardData;
+    if (!clipboardData || !clipboardData.items) return;
+
+    let hasImage = false;
+    for (let i = 0; i < clipboardData.items.length; i++) {
+      const item = clipboardData.items[i];
+      if (item.type && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          hasImage = true;
+          this.processImageFile(file);
+        }
+      }
+    }
+
+    if (hasImage) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  // File picker handler for image upload (supports multiple files)
   onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
-    if (input.files && input.files[0]) {
-      const file = input.files[0];
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        if (result) {
-          this.images.push(result);
-          this.markDirty();
-        }
-      };
-      reader.readAsDataURL(file);
+    if (input.files && input.files.length > 0) {
+      for (let i = 0; i < input.files.length; i++) {
+        this.processImageFile(input.files[i]);
+      }
+      input.value = '';
     }
+  }
+
+  // Process and optimize screenshot/image (resizes large 4K/high-res prints to prevent storage bloat)
+  processImageFile(file: File): void {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const rawDataUrl = e.target?.result as string;
+      if (!rawDataUrl) return;
+
+      if (typeof window !== 'undefined' && typeof Image !== 'undefined') {
+        const img = new Image();
+        img.onload = () => {
+          const maxWidth = 1600;
+          const maxHeight = 1600;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxWidth || height > maxHeight) {
+            if (width > height) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            } else {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(img, 0, 0, width, height);
+                const optimized = canvas.toDataURL('image/jpeg', 0.88);
+                this.images.push(optimized);
+                this.markDirty();
+                return;
+              }
+            } catch {
+              // fallback below
+            }
+          }
+          this.images.push(rawDataUrl);
+          this.markDirty();
+        };
+        img.onerror = () => {
+          this.images.push(rawDataUrl);
+          this.markDirty();
+        };
+        img.src = rawDataUrl;
+      } else {
+        this.images.push(rawDataUrl);
+        this.markDirty();
+      }
+    };
+    reader.readAsDataURL(file);
   }
 
   removeImage(index: number, event: MouseEvent): void {

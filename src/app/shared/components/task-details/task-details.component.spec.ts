@@ -112,4 +112,36 @@ describe('TaskDetailsComponent', () => {
     expect(component.status).toBe('done');
     expect(component.qaBlockedMessage()).toBeNull();
   });
+
+  it('should allow adding images during task creation and emit them in save payload', () => {
+    component.isNew = true;
+    component.task = null;
+    component.ngOnInit();
+
+    expect(component.images).toEqual([]);
+
+    // Add image/screenshot
+    component.images.push('data:image/png;base64,mockImage123');
+    component.title = 'Nova tarefa com prints';
+    component.markDirty();
+
+    const saveSpy = vi.spyOn(component.save, 'emit');
+    component.handleSave();
+
+    expect(saveSpy).toHaveBeenCalledTimes(1);
+    const emitted = saveSpy.mock.calls[0][0] as any;
+    expect(emitted.title).toBe('Nova tarefa com prints');
+    expect(emitted.images).toEqual(['data:image/png;base64,mockImage123']);
+  });
+
+  it('should remove image attachment and mark form dirty', () => {
+    component.images = ['data:image/png;base64,img1', 'data:image/png;base64,img2'];
+    const fakeEvent = { stopPropagation: vi.fn() } as unknown as MouseEvent;
+
+    component.removeImage(0, fakeEvent);
+
+    expect(fakeEvent.stopPropagation).toHaveBeenCalled();
+    expect(component.images).toEqual(['data:image/png;base64,img2']);
+    expect(component.savingStatus()).toBe('dirty');
+  });
 });
